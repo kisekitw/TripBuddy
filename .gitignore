@@ -1,3 +1,6 @@
+# Claude Code
+.claude/
+
 # Artifacts
 .artifacts/*
 !.artifacts/TripBuddy_GapAnalysis.md
