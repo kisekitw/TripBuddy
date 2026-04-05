@@ -43,4 +43,22 @@ export const en = {
   keepAnyway: "Keep anyway",
   min: "min",
   addSpot: "+ Add spot",
+
+  // E-1: Add trip modal
+  newTripModalTitle: "Create new trip",
+  newTripTitleLabel: "Trip name",
+  newTripTitlePlaceholder: "e.g. Italy 2026",
+  newTripDestLabel: "Destination (optional)",
+  newTripDestPlaceholder: "e.g. Tokyo, Paris...",
+  newTripConfirmBtn: "Create",
+  newTripCancelBtn: "Cancel",
+  newTripTitleRequired: "Please enter a trip name",
+
+  // E-2: Add / delete days
+  addDay: "+ Add day",
+  addDayLabel: "Day {n}",
+  deleteDayLabel: "Delete",
+  deleteDayConfirmMsg: "This day has spots. Are you sure you want to delete it?",
+  deleteDayConfirmBtn: "Confirm delete",
+  deleteDayCancelBtn: "Cancel",
 };

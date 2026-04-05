@@ -52,4 +52,22 @@ export const zhTW = {
   keepAnyway: "維持不變",
   min: "分鐘",
   addSpot: "+ 新增景點",
+
+  // E-1: 新增旅程 modal
+  newTripModalTitle: "建立新旅程",
+  newTripTitleLabel: "旅程名稱",
+  newTripTitlePlaceholder: "例：2026 義大利行",
+  newTripDestLabel: "目的地（選填）",
+  newTripDestPlaceholder: "例：東京、巴黎...",
+  newTripConfirmBtn: "建立",
+  newTripCancelBtn: "取消",
+  newTripTitleRequired: "請輸入旅程名稱",
+
+  // E-2: 新增 / 刪除天數
+  addDay: "+ 新增天數",
+  addDayLabel: "第{n}天",
+  deleteDayLabel: "刪除",
+  deleteDayConfirmMsg: "此天含有景點，確定要刪除？",
+  deleteDayConfirmBtn: "確認刪除",
+  deleteDayCancelBtn: "取消",
 };
