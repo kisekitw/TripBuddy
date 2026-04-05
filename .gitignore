@@ -1,3 +1,7 @@
+# Artifacts
+.artifacts/*
+!.artifacts/TripBuddy_GapAnalysis.md
+
 # Logs
 logs
 *.log
