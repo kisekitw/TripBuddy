@@ -1,7 +1,17 @@
-
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
+import { MapContainer, TileLayer, Marker, Popup, Polyline } from "react-leaflet";
 import type { Day } from "../types";
-import { colors as C, dayColors as DC } from "../utils/colors";
-import { getSpotsForDay, getConflictLevel } from "../utils";
+import { getSpotsForDay } from "../utils";
+import { dayColors as DC } from "../utils/colors";
+
+// Fix Leaflet's broken default icon URLs when bundled with Vite
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+});
 
 interface Props {
   day: Day;
@@ -15,52 +25,46 @@ export function MapView({ day, dayIndex }: Props) {
 
   const lats = pts.map((s) => s.la);
   const lngs = pts.map((s) => s.ln);
-  const cLat = lats.reduce((a, b) => a + b, 0) / lats.length;
-  const cLng = lngs.reduce((a, b) => a + b, 0) / lngs.length;
-  const s1 = Math.max(Math.max(...lats) - Math.min(...lats), 0.03);
-  const s2 = Math.max(Math.max(...lngs) - Math.min(...lngs), 0.03);
-  const sc = Math.min(260 / (s1 * 1.4), 260 / (s2 * 1.4));
-  const cx = 185, cy = 195;
-  const pr = (la: number, ln: number) => ({
-    x: cx + (ln - cLng) * sc,
-    y: cy - (la - cLat) * sc,
-  });
+  const centerLat = lats.reduce((a, b) => a + b, 0) / lats.length;
+  const centerLng = lngs.reduce((a, b) => a + b, 0) / lngs.length;
+
   const dc = DC[Math.max(0, dayIndex) % DC.length];
+  const polylinePositions: [number, number][] = pts.map((s) => [s.la, s.ln]);
+
+  const makeIcon = (index: number) =>
+    L.divIcon({
+      className: "",
+      html: `<div style="width:22px;height:22px;border-radius:50%;background:${dc};color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.3)">${index + 1}</div>`,
+      iconSize: [22, 22],
+      iconAnchor: [11, 11],
+    });
 
   return (
-    <div style={{ height: "100%", position: "relative" }}>
-      <div style={{ position: "absolute", inset: 0, background: "radial-gradient(circle at 30% 40%,#e8e6e1,#d5d3cd)" }}>
-        <div style={{ position: "absolute", inset: 0, opacity: 0.06, backgroundImage: "repeating-linear-gradient(0deg,transparent,transparent 30px,#999 30px,#999 31px),repeating-linear-gradient(90deg,transparent,transparent 30px,#999 30px,#999 31px)" }} />
-      </div>
-      <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
-        {pts.map((s, i) => {
-          if (i === 0) return null;
-          const p = pts[i - 1];
-          const a = pr(p.la, p.ln);
-          const b = pr(s.la, s.ln);
-          return <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={dc} strokeWidth="2" strokeDasharray="6 4" opacity="0.5" />;
-        })}
-      </svg>
-      {pts.map((s, i) => {
-        const p = pr(s.la, s.ln);
-        const c = getConflictLevel(s);
-        return (
-          <div key={s.id} style={{ position: "absolute", left: p.x - 10, top: p.y - 10, width: 20, height: 20, borderRadius: 10, background: c >= 2 ? C.errBorder : c === 1 ? C.warnBorder : dc, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 9, fontWeight: 700, boxShadow: "0 1px 4px rgba(0,0,0,.2)", zIndex: 10, cursor: "pointer" }}>
-            {i + 1}
-          </div>
-        );
-      })}
-      {pts.map((s) => {
-        const p = pr(s.la, s.ln);
-        return (
-          <div key={`l-${s.id}`} style={{ position: "absolute", left: p.x + 14, top: p.y - 5, background: "rgba(255,255,255,.88)", padding: "1px 5px", borderRadius: 4, fontSize: 9, fontWeight: 500, color: C.ink, whiteSpace: "nowrap", pointerEvents: "none", zIndex: 5, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis" }}>
-            {s.nm}
-          </div>
-        );
-      })}
-      <div style={{ position: "absolute", bottom: 8, left: 8, background: "rgba(255,255,255,.9)", borderRadius: 8, padding: "5px 10px", fontSize: 10, color: C.muted }}>
-        Day {day.n} · {pts.length} spots
-      </div>
+    <div data-testid="map-container" style={{ height: "100%" }}>
+      <MapContainer
+        center={[centerLat, centerLng]}
+        zoom={14}
+        style={{ height: "100%", width: "100%" }}
+      >
+        <TileLayer
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        />
+        {pts.map((s, i) => (
+          <Marker key={s.id} position={[s.la, s.ln]} icon={makeIcon(i)}>
+            <Popup>{s.nm}</Popup>
+          </Marker>
+        ))}
+        {pts.length > 1 && (
+          <Polyline
+            positions={polylinePositions}
+            color={dc}
+            weight={2}
+            dashArray="6 4"
+            opacity={0.6}
+          />
+        )}
+      </MapContainer>
     </div>
   );
 }
