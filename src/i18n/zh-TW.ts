@@ -1,0 +1,55 @@
+export const zhTW = {
+  // App
+  appName: "TripBuddy",
+  tagline: "你的旅程，永遠快人一步。",
+
+  // Login
+  loginTitle: "登入 TripBuddy",
+  loginDesc: "使用 Google 帳號登入，行程自動儲存並同步到所有裝置。",
+  googleLogin: "使用 Google 帳號登入",
+  guestLogin: "先逛逛，稍後再登入",
+  loginNote: "我們不會讀取你的信件或存取個人資料",
+  logout: "登出",
+
+  // Trip list
+  newTrip: "+ 新增行程",
+  importBtn: "匯入 .md / .docx",
+  createTrip: "+ 建立新行程",
+  importedFrom: "從 .md 匯入",
+  days: "天",
+
+  // Import
+  importTitle: "匯入行程檔案",
+  importDesc: "上傳 .md、.docx 或 .pdf 檔案，AI 會自動解析成可編輯的結構化行程。",
+  dropHere: "拖放檔案至此，或點擊瀏覽",
+  supportedFormats: "支援 .md、.docx、.pdf、Google Drive 連結",
+  or: "或",
+  pasteLink: "貼上 Google Drive 連結...",
+  parse: "解析",
+  parsing: "AI 正在解析你的行程...",
+  parsingDesc: "正在從檔案中提取天數、景點、時間與備註",
+  parseSuccess: "解析成功！",
+  daysLabel: "天數",
+  spotsLabel: "景點",
+  uncertainLabel: "待確認",
+  openEditor: "開啟編輯器 →",
+
+  // Editor
+  back: "← 我的行程",
+  autoAdjust: "自動調整",
+  lockTimes: "鎖定時間",
+  selectDay: "請從左側選擇一天開始編輯",
+  selectDayMap: "選擇一天以顯示地圖",
+  conflicts: "衝突",
+  warnings: "警告",
+  ends: "結束",
+  alternatives: "替代方案",
+  closed: "已關閉",
+  warning: "注意",
+  closes: "關閉於",
+  conflictN: "偵測到 {n} 個衝突",
+  aiAutoAdjust: "AI 自動調整",
+  keepAnyway: "維持不變",
+  min: "分鐘",
+  addSpot: "+ 新增景點",
+};

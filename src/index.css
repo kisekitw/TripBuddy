@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Noto Sans TC", "Segoe UI", system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
