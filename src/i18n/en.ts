@@ -61,4 +61,20 @@ export const en = {
   deleteDayConfirmMsg: "This day has spots. Are you sure you want to delete it?",
   deleteDayConfirmBtn: "Confirm delete",
   deleteDayCancelBtn: "Cancel",
+
+  // E-3: Add / edit / delete spots
+  addSpotModalTitle: "Add spot",
+  editSpotModalTitle: "Edit spot",
+  spotNameLabel: "Spot name",
+  spotNamePlaceholder: "e.g. Colosseum",
+  spotNameRequired: "Please enter a spot name",
+  addSpotConfirmBtn: "Add",
+  editSpotConfirmBtn: "Save",
+  spotCancelBtn: "Cancel",
+  deleteSpotLabel: "Delete spot",
+  editSpotLabel: "Edit spot",
+
+  // E-4: Edit spot time / duration
+  startTimeLabel: "Start time",
+  durationLabel: "Duration",
 };

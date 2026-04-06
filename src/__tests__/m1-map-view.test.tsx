@@ -9,11 +9,12 @@
  * MapContainer wrapper → data-testid="map-container"
  */
 import React from "react";
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, within, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "../App";
 
+beforeEach(() => localStorage.clear());
 afterEach(() => cleanup());
 
 // ── react-leaflet mock ───────────────────────────────────────────

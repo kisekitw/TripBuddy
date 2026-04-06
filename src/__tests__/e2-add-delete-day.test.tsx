@@ -4,11 +4,12 @@
  *
  * TC-E2-05 依賴 E-1 的「建立旅程」功能，確保 1-day 狀態可進入 Editor
  */
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "../App";
 
+beforeEach(() => localStorage.clear());
 afterEach(() => cleanup());
 
 // ─── Helpers ─────────────────────────────────────────────────────

@@ -70,4 +70,20 @@ export const zhTW = {
   deleteDayConfirmMsg: "此天含有景點，確定要刪除？",
   deleteDayConfirmBtn: "確認刪除",
   deleteDayCancelBtn: "取消",
+
+  // E-3: 新增 / 編輯 / 刪除景點
+  addSpotModalTitle: "新增景點",
+  editSpotModalTitle: "編輯景點",
+  spotNameLabel: "景點名稱",
+  spotNamePlaceholder: "例：烏菲茲美術館",
+  spotNameRequired: "請輸入景點名稱",
+  addSpotConfirmBtn: "新增",
+  editSpotConfirmBtn: "儲存",
+  spotCancelBtn: "取消",
+  deleteSpotLabel: "刪除景點",
+  editSpotLabel: "編輯景點",
+
+  // E-4: 修改景點時間與時長
+  startTimeLabel: "開始時間",
+  durationLabel: "停留時長",
 };
