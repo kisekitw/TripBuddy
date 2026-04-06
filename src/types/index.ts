@@ -4,6 +4,7 @@ export interface Spot {
   t: number;         // start time in minutes from midnight
   d: number;         // duration in minutes
   tr: number;        // transit time to next spot
+  type?: "spot" | "transit"; // item type (default: "spot")
   la: number;        // latitude
   ln: number;        // longitude
   cl?: number;       // closing time (hard constraint)

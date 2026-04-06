@@ -77,4 +77,12 @@ export const en = {
   // E-4: Edit spot time / duration
   startTimeLabel: "Start time",
   durationLabel: "Duration",
+
+  // T-1: Add transit
+  addTransit: "+ Transit",
+  addTransitModalTitle: "Add Transit",
+  editTransitModalTitle: "Edit Transit",
+  transitNameLabel: "Transit name",
+  transitNamePlaceholder: "e.g. Flight TPE → DXB",
+  transitNameRequired: "Please enter a transit name",
 };

@@ -52,10 +52,19 @@ export default function App() {
   const [editingSpotId, setEditingSpotId] = useState<string | null>(null);
   const [spotFormName, setSpotFormName] = useState("");
   const [spotFormErr, setSpotFormErr] = useState("");
+  const [spotModalType, setSpotModalType] = useState<"spot" | "transit">("spot");
+
+  // T-1: transit modal state
+  const [transitModalOpen, setTransitModalOpen] = useState(false);
+  const [transitFormName, setTransitFormName] = useState("");
+  const [transitFormErr, setTransitFormErr] = useState("");
 
   // E-4: inline time / duration editing
   const [editingTimeSpotId, setEditingTimeSpotId] = useState<string | null>(null);
   const [editingDurSpotId, setEditingDurSpotId] = useState<string | null>(null);
+
+  // E-6: cascade delta badges
+  const [spotDeltas, setSpotDeltas] = useState<Record<string, number>>({});
 
   const fileRef = useRef<HTMLInputElement>(null);
   const t = getTranslations(lang);
@@ -63,6 +72,9 @@ export default function App() {
   // E-5: persist trips & days to localStorage whenever they change
   useEffect(() => { localStorage.setItem("tb_trips", JSON.stringify(trips)); }, [trips]);
   useEffect(() => { localStorage.setItem("tb_tripDaysMap", JSON.stringify(tripDaysMap)); }, [tripDaysMap]);
+
+  // E-6: clear delta badges whenever selected day changes
+  useEffect(() => { setSpotDeltas({}); }, [selDay]);
 
   // ── Handlers ────────────────────────────────────────────────────
 
@@ -164,6 +176,7 @@ export default function App() {
   };
 
   const openEditSpot = (spot: Spot) => {
+    setSpotModalType(spot.type === "transit" ? "transit" : "spot");
     setEditingSpotId(spot.id); setSpotFormName(spot.nm); setSpotFormErr(""); setSpotModalOpen(true);
   };
 
@@ -172,7 +185,7 @@ export default function App() {
   };
 
   const handleSaveSpot = () => {
-    if (!spotFormName.trim()) { setSpotFormErr(t.spotNameRequired); return; }
+    if (!spotFormName.trim()) { setSpotFormErr(spotModalType === "transit" ? t.transitNameRequired : t.spotNameRequired); return; }
     const name = spotFormName.trim();
     setDays((prev) => prev.map((d) => {
       if (d.id !== selDay) return d;
@@ -203,35 +216,135 @@ export default function App() {
     }));
   };
 
-  // ── E-4: Inline spot time / duration editing ─────────────────────
+  // ── T-1: Transit CRUD ────────────────────────────────────────────
 
-  const updateSpotTime = (dayId: number, spotId: string, val: string) => {
-    const m = val.match(/^(\d{1,2}):(\d{2})$/);
-    if (!m) { setEditingTimeSpotId(null); return; }
-    const newT = parseInt(m[1]) * 60 + parseInt(m[2]);
-    if (newT < 0 || newT >= 1440) { setEditingTimeSpotId(null); return; }
-    setDays((prev) => prev.map((d) => {
-      if (d.id !== dayId) return d;
-      const spots = getSpotsForDay(d).map((s) => s.id === spotId ? { ...s, t: newT } : s);
-      const upd: Day = d.st === "u" && d.vs && d.av !== undefined
-        ? { ...d, vs: d.vs.map((v, i) => i === d.av ? { ...v, sp: spots } : v) }
-        : { ...d, sp: spots };
-      return tMode === "auto" ? recalcDay(upd) : upd;
-    }));
-    setEditingTimeSpotId(null);
+  const openAddTransit = () => {
+    setTransitFormName(""); setTransitFormErr(""); setTransitModalOpen(true);
   };
 
-  const updateSpotDuration = (dayId: number, spotId: string, val: string) => {
-    const newD = parseInt(val);
-    if (isNaN(newD) || newD <= 0) { setEditingDurSpotId(null); return; }
+  const closeTransitModal = () => {
+    setTransitModalOpen(false); setTransitFormName(""); setTransitFormErr("");
+  };
+
+  const handleSaveTransit = () => {
+    if (!transitFormName.trim()) { setTransitFormErr(t.transitNameRequired); return; }
+    const name = transitFormName.trim();
     setDays((prev) => prev.map((d) => {
+      if (d.id !== selDay) return d;
+      const spots = getSpotsForDay(d);
+      const last = spots[spots.length - 1];
+      const newT = last ? last.t + last.d + (last.tr || 0) : 540;
+      const newSpot = { id: `tr-${Date.now()}`, nm: name, t: newT, d: 60, tr: 0, la: 0, ln: 0, type: "transit" as const };
+      const updated = [...spots, newSpot];
+      const upd: Day = d.st === "u" && d.vs && d.av !== undefined
+        ? { ...d, vs: d.vs.map((v, i) => i === d.av ? { ...v, sp: updated } : v) }
+        : { ...d, sp: updated };
+      return tMode === "auto" ? recalcDay(upd) : upd;
+    }));
+    closeTransitModal();
+  };
+
+  // ── E-4: Inline spot time / duration editing + step buttons ────────
+
+  /** Step duration by ±delta minutes (used by ▾▴ buttons) */
+  const stepDuration = (dayId: number, spotId: string, delta: number) => {
+    const currentDay = days.find((d) => d.id === dayId);
+    if (!currentDay) return;
+    const spot = getSpotsForDay(currentDay).find((s) => s.id === spotId);
+    if (!spot) return;
+    const newD = Math.max(5, spot.d + delta);
+    const oldTimes = Object.fromEntries(getSpotsForDay(currentDay).map((s) => [s.id, s.t]));
+    const newDays = days.map((d) => {
       if (d.id !== dayId) return d;
       const spots = getSpotsForDay(d).map((s) => s.id === spotId ? { ...s, d: newD } : s);
       const upd: Day = d.st === "u" && d.vs && d.av !== undefined
         ? { ...d, vs: d.vs.map((v, i) => i === d.av ? { ...v, sp: spots } : v) }
         : { ...d, sp: spots };
       return tMode === "auto" ? recalcDay(upd) : upd;
-    }));
+    });
+    if (tMode === "auto") {
+      const newDay = newDays.find((d) => d.id === dayId);
+      if (newDay) {
+        const deltas: Record<string, number> = {};
+        getSpotsForDay(newDay).forEach((s) => {
+          const dv = s.t - (oldTimes[s.id] ?? s.t);
+          if (dv !== 0) deltas[s.id] = dv;
+        });
+        setSpotDeltas(deltas);
+      }
+    } else { setSpotDeltas({}); }
+    setDays(newDays);
+  };
+
+  // ── E-4 (original) ───────────────────────────────────────────────
+
+  const updateSpotTime = (dayId: number, spotId: string, val: string) => {
+    const m = val.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) { setEditingTimeSpotId(null); return; }
+    const newT = parseInt(m[1]) * 60 + parseInt(m[2]);
+    if (newT < 0 || newT >= 1440) { setEditingTimeSpotId(null); return; }
+    // E-6: capture old times before update
+    const currentDay = days.find((d) => d.id === dayId);
+    const oldTimes = currentDay
+      ? Object.fromEntries(getSpotsForDay(currentDay).map((s) => [s.id, s.t]))
+      : {};
+    const newDays = days.map((d) => {
+      if (d.id !== dayId) return d;
+      const spots = getSpotsForDay(d).map((s) => s.id === spotId ? { ...s, t: newT } : s);
+      const upd: Day = d.st === "u" && d.vs && d.av !== undefined
+        ? { ...d, vs: d.vs.map((v, i) => i === d.av ? { ...v, sp: spots } : v) }
+        : { ...d, sp: spots };
+      return tMode === "auto" ? recalcDay(upd) : upd;
+    });
+    // E-6: compute and set deltas
+    if (tMode === "auto") {
+      const newDay = newDays.find((d) => d.id === dayId);
+      if (newDay) {
+        const deltas: Record<string, number> = {};
+        getSpotsForDay(newDay).forEach((s) => {
+          const delta = s.t - (oldTimes[s.id] ?? s.t);
+          if (delta !== 0) deltas[s.id] = delta;
+        });
+        setSpotDeltas(deltas);
+      }
+    } else {
+      setSpotDeltas({});
+    }
+    setDays(newDays);
+    setEditingTimeSpotId(null);
+  };
+
+  const updateSpotDuration = (dayId: number, spotId: string, val: string) => {
+    const newD = parseInt(val);
+    if (isNaN(newD) || newD <= 0) { setEditingDurSpotId(null); return; }
+    // E-6: capture old times before update
+    const currentDay = days.find((d) => d.id === dayId);
+    const oldTimes = currentDay
+      ? Object.fromEntries(getSpotsForDay(currentDay).map((s) => [s.id, s.t]))
+      : {};
+    const newDays = days.map((d) => {
+      if (d.id !== dayId) return d;
+      const spots = getSpotsForDay(d).map((s) => s.id === spotId ? { ...s, d: newD } : s);
+      const upd: Day = d.st === "u" && d.vs && d.av !== undefined
+        ? { ...d, vs: d.vs.map((v, i) => i === d.av ? { ...v, sp: spots } : v) }
+        : { ...d, sp: spots };
+      return tMode === "auto" ? recalcDay(upd) : upd;
+    });
+    // E-6: compute and set deltas
+    if (tMode === "auto") {
+      const newDay = newDays.find((d) => d.id === dayId);
+      if (newDay) {
+        const deltas: Record<string, number> = {};
+        getSpotsForDay(newDay).forEach((s) => {
+          const delta = s.t - (oldTimes[s.id] ?? s.t);
+          if (delta !== 0) deltas[s.id] = delta;
+        });
+        setSpotDeltas(deltas);
+      }
+    } else {
+      setSpotDeltas({});
+    }
+    setDays(newDays);
     setEditingDurSpotId(null);
   };
 
@@ -454,69 +567,90 @@ export default function App() {
               {/* Spot list */}
               {sp.map((s, i) => {
                 const c = getConflictLevel(s);
+                const pencilSvg = <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>;
+                const deltaBadge = spotDeltas[s.id] !== undefined && spotDeltas[s.id] !== 0
+                  ? <span data-testid="delta-badge" style={{ fontSize: 8, padding: "1px 5px", borderRadius: 100, background: C.infoBg, color: C.infoText, fontWeight: 600, border: `1px solid ${C.infoBorder}`, whiteSpace: "nowrap" }}>{spotDeltas[s.id] > 0 ? "+" : ""}{spotDeltas[s.id]}{t.min}</span>
+                  : null;
+                const durEl = (bg: string, color: string, borderColor: string) => editingDurSpotId === s.id
+                  ? <input type="number" defaultValue={s.d} aria-label={`${t.durationLabel} ${s.nm}`} min={5} autoFocus onKeyDown={(e) => { if (e.key === "Enter") updateSpotDuration(dd.id, s.id, e.currentTarget.value); if (e.key === "Escape") setEditingDurSpotId(null); }} style={{ width: 50, fontSize: 11, border: `1px solid ${borderColor}`, borderRadius: 6, padding: "1px 4px", outline: "none" }} />
+                  : <button onClick={() => setEditingDurSpotId(s.id)} aria-label={`${t.durationLabel} ${s.nm}`} style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color, background: bg, border: "none", borderRadius: 20, padding: "2px 8px", cursor: "pointer" }}><span style={{ fontSize: 14 }}>⏱</span>{s.d} {t.min}</button>;
+
                 return (
                   <div key={s.id}>
-                    {i > 0 && <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "1px 0 1px 38px", fontSize: 9, color: C.muted }}>&#9201; {sp[i - 1].tr || 0}{t.min}</div>}
-                    <div draggable onDragStart={() => setDragI(i)} onDragOver={(e) => e.preventDefault()} onDrop={() => { if (dragI !== null && dragI !== i) moveSpot(dd.id, dragI, i); setDragI(null); }} onDragEnd={() => setDragI(null)}
-                      style={{ display: "flex", gap: 0, marginBottom: 2, opacity: dragI === i ? 0.4 : 1, cursor: "grab" }}>
-                      {/* E-4: Editable time / duration column */}
-                      <div style={{ minWidth: 38, display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "center", paddingRight: 6, position: "relative" }}>
-                        {editingTimeSpotId === s.id ? (
-                          <input type="text" defaultValue={fmt(s.t)} aria-label={`${t.startTimeLabel} ${s.nm}`} autoFocus
-                            onKeyDown={(e) => { if (e.key === "Enter") updateSpotTime(dd.id, s.id, e.currentTarget.value); if (e.key === "Escape") setEditingTimeSpotId(null); }}
-                            onBlur={(e) => updateSpotTime(dd.id, s.id, e.target.value)}
-                            style={{ width: 36, fontSize: 10, textAlign: "right", border: `1px solid ${C.accent}`, borderRadius: 3, padding: "1px 2px", outline: "none" }} />
-                        ) : (
-                          <button onClick={() => setEditingTimeSpotId(s.id)} aria-label={`${t.startTimeLabel} ${s.nm}`}
-                            style={{ fontSize: 11, fontWeight: 500, color: c >= 2 ? C.errText : c === 1 ? C.warnText : C.muted, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-                            {fmt(s.t)}
-                          </button>
-                        )}
-                        {editingDurSpotId === s.id ? (
-                          <input type="number" defaultValue={s.d} aria-label={`${t.durationLabel} ${s.nm}`} min={1} autoFocus
-                            onKeyDown={(e) => { if (e.key === "Enter") updateSpotDuration(dd.id, s.id, e.currentTarget.value); if (e.key === "Escape") setEditingDurSpotId(null); }}
-                            onBlur={(e) => updateSpotDuration(dd.id, s.id, e.target.value)}
-                            style={{ width: 36, fontSize: 8, textAlign: "right", border: `1px solid ${C.accent}`, borderRadius: 3, padding: "1px 2px", outline: "none" }} />
-                        ) : (
-                          <button onClick={() => setEditingDurSpotId(s.id)} aria-label={`${t.durationLabel} ${s.nm}`}
-                            style={{ fontSize: 8, color: C.muted, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-                            {s.d}{t.min}
-                          </button>
-                        )}
-                        <div style={{ position: "absolute", right: 0, top: 0, bottom: -2, width: 2, background: C.light }} />
-                        <div style={{ position: "absolute", right: -2.5, top: "50%", transform: "translateY(-50%)", width: 6, height: 6, borderRadius: 3, background: s.isA ? C.infoBorder : dc }} />
+                    {i > 0 && (sp[i - 1].tr || 0) > 0 && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 0 2px 26px", fontSize: 9, color: C.muted }}>
+                        &#9201; {sp[i - 1].tr}{t.min}
                       </div>
+                    )}
+                    <div draggable onDragStart={() => setDragI(i)} onDragOver={(e) => e.preventDefault()} onDrop={() => { if (dragI !== null && dragI !== i) moveSpot(dd.id, dragI, i); setDragI(null); }} onDragEnd={() => setDragI(null)}
+                      style={{ display: "flex", alignItems: "flex-start", gap: 6, marginBottom: 4, opacity: dragI === i ? 0.4 : 1 }}>
+
+                      {/* Drag handle */}
+                      <span style={{ paddingTop: 9, color: C.muted, fontSize: 13, cursor: "grab", userSelect: "none", flexShrink: 0 }}>⠿</span>
 
                       {s.isA && s.ao ? (
-                        <div style={{ flex: 1, marginLeft: 8, border: `1.5px dashed ${C.infoBorder}`, borderRadius: 8, padding: 6 }}>
-                          <div style={{ fontSize: 9, color: C.infoText, fontWeight: 500, marginBottom: 3 }}>{t.alternatives}</div>
-                          <div style={{ display: "flex", gap: 2, marginBottom: 4, flexWrap: "wrap" }}>
+                        /* ── Alternative slot card ── */
+                        <div style={{ flex: 1, border: `1.5px dashed ${C.infoBorder}`, borderRadius: 10, padding: "8px 10px", background: C.card }}>
+                          <div style={{ fontSize: 9, color: C.infoText, fontWeight: 500, marginBottom: 4 }}>{t.alternatives}</div>
+                          <div style={{ display: "flex", gap: 2, marginBottom: 6, flexWrap: "wrap" }}>
                             {s.ao.map((o, ai) => (
                               <button key={ai} onClick={() => switchAlt(dd.id, s.id, ai)} style={{ ...pill, fontSize: 9, padding: "2px 6px", background: s.si === ai ? C.infoBg : "transparent", color: s.si === ai ? C.infoText : C.muted, borderColor: s.si === ai ? C.infoBorder : C.light }}>{o.nm.length > 14 ? o.nm.slice(0, 14) + ".." : o.nm}</button>
                             ))}
                           </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                            <span style={{ fontSize: 9, color: C.muted }}>&#x2630;</span>
-                            <span style={{ fontSize: 11, fontWeight: 500, color: C.ink, flex: 1 }}>{s.nm}</span>
-                            {/* E-3: Edit / Delete */}
-                            <button aria-label={`${t.editSpotLabel} ${s.nm}`} onClick={() => openEditSpot(s)} style={{ fontSize: 10, background: "none", border: "none", color: C.muted, cursor: "pointer", padding: "0 2px" }}>✏</button>
-                            <button aria-label={`${t.deleteSpotLabel} ${s.nm}`} onClick={() => deleteSpot(s.id)} style={{ fontSize: 10, background: "none", border: "none", color: C.muted, cursor: "pointer", padding: "0 2px" }}>×</button>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: 4, background: C.infoBorder, flexShrink: 0 }} />
+                            <span style={{ fontSize: 12, fontWeight: 500, color: C.ink }}>{s.nm}</span>
+                            {durEl("#f0efec", C.muted, C.accent)}
+                            {deltaBadge}
+                            <span style={{ flex: 1 }} />
+                            {editingTimeSpotId === s.id
+                              ? <input type="text" defaultValue={fmt(s.t)} aria-label={`${t.startTimeLabel} ${s.nm}`} autoFocus onKeyDown={(e) => { if (e.key === "Enter") updateSpotTime(dd.id, s.id, e.currentTarget.value); if (e.key === "Escape") setEditingTimeSpotId(null); }} style={{ width: 44, fontSize: 11, border: `1px solid ${C.accent}`, borderRadius: 4, padding: "1px 4px", outline: "none" }} />
+                              : <button onClick={() => setEditingTimeSpotId(s.id)} aria-label={`${t.startTimeLabel} ${s.nm}`} style={{ fontSize: 11, color: C.muted, background: "none", border: "none", cursor: "pointer", padding: "1px 4px" }}>{fmt(s.t)}</button>
+                            }
+                            <button aria-label={`${t.editSpotLabel} ${s.nm}`} onClick={() => openEditSpot(s)} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", padding: "0 2px", display: "flex", alignItems: "center" }}>{pencilSvg}</button>
+                            <button aria-label={`${t.deleteSpotLabel} ${s.nm}`} onClick={() => deleteSpot(s.id)} style={{ fontSize: 13, background: "none", border: "none", color: C.muted, cursor: "pointer", padding: "0 2px" }}>×</button>
                           </div>
-                          {s.nt && <p style={{ fontSize: 9, color: C.accent, margin: "2px 0 0 12px" }}>{s.nt}</p>}
+                          {s.nt && <p style={{ fontSize: 9, color: C.accent, margin: "4px 0 0 14px" }}>{s.nt}</p>}
                         </div>
+
+                      ) : s.type === "transit" ? (
+                        /* ── Transit card ── */
+                        <div data-testid="transit-item" style={{ flex: 1, background: "#f0f4ff", border: `1px solid #c8d6f8`, borderRadius: 10, padding: "8px 10px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontSize: 14, flexShrink: 0 }}>🚌</span>
+                            <span style={{ fontSize: 12, fontWeight: 500, color: "#3a4a7a" }}>{s.nm}</span>
+                            {durEl("#dce4ff", "#3a4a7a", "#6366f1")}
+                            {deltaBadge}
+                            <span style={{ flex: 1 }} />
+                            {editingTimeSpotId === s.id
+                              ? <input type="text" defaultValue={fmt(s.t)} aria-label={`${t.startTimeLabel} ${s.nm}`} autoFocus onKeyDown={(e) => { if (e.key === "Enter") updateSpotTime(dd.id, s.id, e.currentTarget.value); if (e.key === "Escape") setEditingTimeSpotId(null); }} style={{ width: 44, fontSize: 11, border: `1px solid #6366f1`, borderRadius: 4, padding: "1px 4px", outline: "none" }} />
+                              : <button onClick={() => setEditingTimeSpotId(s.id)} aria-label={`${t.startTimeLabel} ${s.nm}`} style={{ fontSize: 11, color: "#6366f1", background: "none", border: "none", cursor: "pointer", padding: "1px 4px" }}>{fmt(s.t)}</button>
+                            }
+                            <button aria-label={`${t.editSpotLabel} ${s.nm}`} onClick={() => openEditSpot(s)} style={{ background: "none", border: "none", color: "#3a4a7a", cursor: "pointer", padding: "0 2px", display: "flex", alignItems: "center" }}>{pencilSvg}</button>
+                            <button aria-label={`${t.deleteSpotLabel} ${s.nm}`} onClick={() => deleteSpot(s.id)} style={{ fontSize: 13, background: "none", border: "none", color: "#3a4a7a", cursor: "pointer", padding: "0 2px" }}>×</button>
+                          </div>
+                        </div>
+
                       ) : (
-                        <div style={{ flex: 1, marginLeft: 8, padding: "6px 10px", borderRadius: 8, background: c >= 2 ? C.errBg : c === 1 ? C.warnBg : C.card, border: `1px solid ${c >= 2 ? C.errBorder : c === 1 ? C.warnBorder : C.light}` }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                            <span style={{ fontSize: 9, color: C.muted }}>&#x2630;</span>
-                            <span style={{ fontSize: 11, fontWeight: 500, color: C.ink, flex: 1 }}>{s.nm}</span>
+                        /* ── Normal spot card ── */
+                        <div style={{ flex: 1, background: c >= 2 ? C.errBg : c === 1 ? C.warnBg : C.card, border: `1px solid ${c >= 2 ? C.errBorder : c === 1 ? C.warnBorder : C.light}`, borderRadius: 10, padding: "8px 10px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: 4, background: c >= 2 ? C.errText : c === 1 ? C.warnText : dc, flexShrink: 0 }} />
+                            <span style={{ fontSize: 12, fontWeight: 500, color: C.ink }}>{s.nm}</span>
+                            {durEl("#f0efec", C.muted, C.accent)}
                             {c >= 2 && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 100, background: C.errBg, color: C.errText, fontWeight: 500, border: `1px solid ${C.errBorder}` }}>{t.closed}</span>}
                             {c === 1 && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 100, background: C.warnBg, color: C.warnText, fontWeight: 500, border: `1px solid ${C.warnBorder}` }}>{t.warning}</span>}
                             {s.cl && c === 0 && <span style={{ fontSize: 8, color: C.muted }}>{t.closes} {fmt(s.cl)}</span>}
-                            {/* E-3: Edit / Delete */}
-                            <button aria-label={`${t.editSpotLabel} ${s.nm}`} onClick={() => openEditSpot(s)} style={{ fontSize: 10, background: "none", border: "none", color: C.muted, cursor: "pointer", padding: "0 2px" }}>✏</button>
-                            <button aria-label={`${t.deleteSpotLabel} ${s.nm}`} onClick={() => deleteSpot(s.id)} style={{ fontSize: 10, background: "none", border: "none", color: C.muted, cursor: "pointer", padding: "0 2px" }}>×</button>
+                            {deltaBadge}
+                            <span style={{ flex: 1 }} />
+                            {editingTimeSpotId === s.id
+                              ? <input type="text" defaultValue={fmt(s.t)} aria-label={`${t.startTimeLabel} ${s.nm}`} autoFocus onKeyDown={(e) => { if (e.key === "Enter") updateSpotTime(dd.id, s.id, e.currentTarget.value); if (e.key === "Escape") setEditingTimeSpotId(null); }} style={{ width: 44, fontSize: 11, border: `1px solid ${C.accent}`, borderRadius: 4, padding: "1px 4px", outline: "none" }} />
+                              : <button onClick={() => setEditingTimeSpotId(s.id)} aria-label={`${t.startTimeLabel} ${s.nm}`} style={{ fontSize: 11, color: C.muted, background: "none", border: "none", cursor: "pointer", padding: "1px 4px" }}>{fmt(s.t)}</button>
+                            }
+                            <button aria-label={`${t.editSpotLabel} ${s.nm}`} onClick={() => openEditSpot(s)} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", padding: "0 2px", display: "flex", alignItems: "center" }}>{pencilSvg}</button>
+                            <button aria-label={`${t.deleteSpotLabel} ${s.nm}`} onClick={() => deleteSpot(s.id)} style={{ fontSize: 13, background: "none", border: "none", color: C.muted, cursor: "pointer", padding: "0 2px" }}>×</button>
                           </div>
-                          {s.nt && <p style={{ fontSize: 9, color: C.accent, margin: "2px 0 0 12px" }}>{s.nt}</p>}
+                          {s.nt && <p style={{ fontSize: 9, color: C.accent, margin: "4px 0 0 14px" }}>{s.nt}</p>}
                         </div>
                       )}
                     </div>
@@ -524,11 +658,17 @@ export default function App() {
                 );
               })}
 
-              {/* E-3: Add spot button */}
-              <button onClick={openAddSpot}
-                style={{ width: "100%", padding: "6px 0", borderRadius: 8, border: `1px dashed ${C.light}`, background: "transparent", color: C.muted, fontSize: 11, cursor: "pointer", marginTop: 6 }}>
-                {t.addSpot}
-              </button>
+              {/* E-3 + T-1: Add buttons */}
+              <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                <button onClick={openAddSpot}
+                  style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: `1px dashed ${C.light}`, background: "transparent", color: C.muted, fontSize: 11, cursor: "pointer" }}>
+                  {t.addSpot}
+                </button>
+                <button onClick={openAddTransit} aria-label={t.addTransit}
+                  style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: `1px dashed ${C.light}`, background: "transparent", color: C.muted, fontSize: 11, cursor: "pointer" }}>
+                  {t.addTransit}
+                </button>
+              </div>
 
               {nC > 0 && (
                 <div style={{ marginTop: 8, background: C.errBg, border: `1px solid ${C.errBorder}`, borderRadius: 8, padding: 10 }}>
@@ -558,7 +698,7 @@ export default function App() {
 
       {/* E-2: Delete day confirmation dialog */}
       {deleteConfirmDayId !== null && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
           <div role="alertdialog" aria-modal="true" style={{ background: C.card, borderRadius: 16, padding: 24, width: 320, maxWidth: "90vw" }}>
             <p style={{ fontSize: 14, fontWeight: 600, color: C.ink, margin: "0 0 20px" }}>{t.deleteDayConfirmMsg}</p>
             <div style={{ display: "flex", gap: 8 }}>
@@ -571,16 +711,16 @@ export default function App() {
 
       {/* E-3: Add / Edit spot modal */}
       {spotModalOpen && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }} onClick={closeSpotModal}>
-          <div role="dialog" aria-modal="true" aria-label={editingSpotId ? t.editSpotModalTitle : t.addSpotModalTitle}
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={closeSpotModal}>
+          <div role="dialog" aria-modal="true" aria-label={spotModalType === "transit" ? (editingSpotId ? t.editTransitModalTitle : t.addTransitModalTitle) : (editingSpotId ? t.editSpotModalTitle : t.addSpotModalTitle)}
             onClick={(e) => e.stopPropagation()}
             style={{ background: C.card, borderRadius: 20, padding: 28, width: 380, maxWidth: "90vw" }}>
             <h3 style={{ fontSize: 17, fontWeight: 700, color: C.ink, margin: "0 0 20px" }}>
-              {editingSpotId ? t.editSpotModalTitle : t.addSpotModalTitle}
+              {spotModalType === "transit" ? (editingSpotId ? t.editTransitModalTitle : t.addTransitModalTitle) : (editingSpotId ? t.editSpotModalTitle : t.addSpotModalTitle)}
             </h3>
             <div style={{ marginBottom: 20 }}>
-              <label htmlFor="spot-name-input" style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "block", marginBottom: 5 }}>{t.spotNameLabel}</label>
-              <input id="spot-name-input" type="text" value={spotFormName} onChange={(e) => { setSpotFormName(e.target.value); setSpotFormErr(""); }} placeholder={t.spotNamePlaceholder} autoFocus
+              <label htmlFor="spot-name-input" style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "block", marginBottom: 5 }}>{spotModalType === "transit" ? t.transitNameLabel : t.spotNameLabel}</label>
+              <input id="spot-name-input" type="text" value={spotFormName} onChange={(e) => { setSpotFormName(e.target.value); setSpotFormErr(""); }} placeholder={spotModalType === "transit" ? t.transitNamePlaceholder : t.spotNamePlaceholder} autoFocus
                 style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${spotFormErr ? C.errBorder : C.light}`, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
               {spotFormErr && <p style={{ fontSize: 11, color: C.errText, margin: "4px 0 0" }}>{spotFormErr}</p>}
             </div>
@@ -589,6 +729,27 @@ export default function App() {
               <button onClick={handleSaveSpot} style={{ flex: 1, padding: "11px 0", borderRadius: 100, border: "none", background: C.accent, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
                 {editingSpotId ? t.editSpotConfirmBtn : t.addSpotConfirmBtn}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* T-1: Add transit modal */}
+      {transitModalOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={closeTransitModal}>
+          <div role="dialog" aria-modal="true" aria-label={t.addTransitModalTitle}
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: C.card, borderRadius: 20, padding: 28, width: 380, maxWidth: "90vw" }}>
+            <h3 style={{ fontSize: 17, fontWeight: 700, color: C.ink, margin: "0 0 20px" }}>{t.addTransitModalTitle}</h3>
+            <div style={{ marginBottom: 20 }}>
+              <label htmlFor="transit-name-input" style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "block", marginBottom: 5 }}>{t.transitNameLabel}</label>
+              <input id="transit-name-input" type="text" value={transitFormName} onChange={(e) => { setTransitFormName(e.target.value); setTransitFormErr(""); }} placeholder={t.transitNamePlaceholder} autoFocus
+                style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${transitFormErr ? C.errBorder : C.light}`, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+              {transitFormErr && <p style={{ fontSize: 11, color: C.errText, margin: "4px 0 0" }}>{transitFormErr}</p>}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={closeTransitModal} style={{ flex: 1, padding: "11px 0", borderRadius: 100, border: `1px solid ${C.light}`, background: "transparent", color: C.muted, fontSize: 13, cursor: "pointer" }}>{t.spotCancelBtn}</button>
+              <button onClick={handleSaveTransit} style={{ flex: 1, padding: "11px 0", borderRadius: 100, border: "none", background: C.accent, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>{t.addSpotConfirmBtn}</button>
             </div>
           </div>
         </div>

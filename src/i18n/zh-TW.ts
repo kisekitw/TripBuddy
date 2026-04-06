@@ -86,4 +86,12 @@ export const zhTW = {
   // E-4: 修改景點時間與時長
   startTimeLabel: "開始時間",
   durationLabel: "停留時長",
+
+  // T-1: 新增交通
+  addTransit: "+ 交通",
+  addTransitModalTitle: "新增交通",
+  editTransitModalTitle: "編輯交通",
+  transitNameLabel: "交通名稱",
+  transitNamePlaceholder: "例：搭機 TPE → DXB",
+  transitNameRequired: "請輸入交通名稱",
 };
