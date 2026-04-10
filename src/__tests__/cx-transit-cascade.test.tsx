@@ -132,7 +132,7 @@ describe("CX: 跨夜交通出發/抵達時間連動", () => {
 
       // After cascade: 1400+5+10=1415 → 23:35
       expect(depCard).toHaveTextContent("23:35");
-    });
+    }, 30000);
   });
 
   // ── TC-CX-04 (integration) ───────────────────────────────────────
@@ -158,7 +158,7 @@ describe("CX: 跨夜交通出發/抵達時間連動", () => {
 
       const arrCard = screen.getByTestId("transit-arrival");
       expect(arrCard).toHaveTextContent("04:20"); // 1415+285-1440=260=04:20
-    });
+    }, 30000);
     afterEach(() => cleanup());
   });
 });

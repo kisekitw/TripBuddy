@@ -127,4 +127,40 @@ describe("E-4: 直接修改景點時間與停留時長", () => {
       expect(screen.getByRole("button", { name: "開始時間 烏菲茲美術館" })).toHaveTextContent("09:00");
     });
   });
+
+  // ── TC-E4-06 ────────────────────────────────────────────────────
+  describe("TC-E4-06 ｜ 一般景點時長用 xxh xxm 格式顯示", () => {
+    /**
+     * Given  D4 已選取，烏菲茲美術館 d=180（3 小時）
+     * Then   時長按鈕顯示 "3h"（而非 "180 分鐘"）
+     *
+     * Given  領主廣場 d=60（1 小時）
+     * Then   時長按鈕顯示 "1h"
+     *
+     * Given  烏菲茲 d=180, 修改為 d=95（1h 35m）
+     * Then   時長按鈕顯示 "1h 35m"
+     */
+    it("should display duration in xxh xxm format for regular spots", async () => {
+      await selectD4();
+
+      // 180 min = 3h
+      expect(screen.getByRole("button", { name: "停留時長 烏菲茲美術館" })).toHaveTextContent("3h");
+      // 60 min = 1h
+      expect(screen.getByRole("button", { name: "停留時長 領主廣場/舊宮/野豬噴泉" })).toHaveTextContent("1h");
+    });
+
+    it("should display xxh xxm when minutes remainder is non-zero", async () => {
+      const user = await selectD4();
+
+      // Change duration to 95 min = 1h 35m
+      await user.click(screen.getByRole("button", { name: "停留時長 烏菲茲美術館" }));
+      const hInput = screen.getByLabelText("停留時長 烏菲茲美術館 小時");
+      const mInput = screen.getByLabelText("停留時長 烏菲茲美術館 分鐘");
+      await user.clear(hInput); await user.type(hInput, "1");
+      await user.clear(mInput); await user.type(mInput, "35");
+      await user.keyboard("{Enter}");
+
+      expect(screen.getByRole("button", { name: "停留時長 烏菲茲美術館" })).toHaveTextContent("1h 35m");
+    });
+  });
 });

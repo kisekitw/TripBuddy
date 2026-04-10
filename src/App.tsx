@@ -898,7 +898,7 @@ export default function App() {
                 const deltaBadge = spotDeltas[s.id] !== undefined && spotDeltas[s.id] !== 0
                   ? <span data-testid="delta-badge" style={{ fontSize: 8, padding: "1px 5px", borderRadius: 100, background: C.infoBg, color: C.infoText, fontWeight: 600, border: `1px solid ${C.infoBorder}`, whiteSpace: "nowrap" }}>{spotDeltas[s.id] > 0 ? "+" : ""}{spotDeltas[s.id]}{t.min}</span>
                   : null;
-                const durText = (s.type === "transit" && s.d >= 60)
+                const durText = s.d >= 60
                   ? `${Math.floor(s.d / 60)}h${s.d % 60 > 0 ? ` ${s.d % 60}m` : ""}`
                   : `${s.d} ${t.min}`;
                 // 改動 1: compute start–end time range for time button display
