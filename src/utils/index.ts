@@ -60,12 +60,20 @@ export function recalcDay(day: Day): Day {
 
   let t = spots[0].t;
   const newSpots = spots.map((s, i) => {
-    // Cross-midnight cards: keep their time fixed, advance cascade pointer from them
-    if (s.nextDayArrival !== undefined || s.isArrival) {
+    // Arrival cards: keep their own time (synced separately via syncCrossNightArrivals)
+    if (s.isArrival) {
       t = s.t + s.d + (s.tr || 0);
       return s;
     }
-    const updated = { ...s, t: i === 0 ? s.t : t };
+    const newT = i === 0 ? s.t : t;
+    // Cross-midnight departure: cascade t AND recalculate nextDayArrival
+    if (s.nextDayArrival !== undefined) {
+      const totalArrival = newT + s.d + (s.tzOffset ?? 0) * 60;
+      const newNextDayArrival = totalArrival >= 1440 ? totalArrival - 1440 : s.nextDayArrival;
+      t = newT + s.d + (s.tr || 0);
+      return { ...s, t: newT, nextDayArrival: newNextDayArrival };
+    }
+    const updated = { ...s, t: newT };
     t = updated.t + updated.d + (updated.tr || 0);
     return updated;
   });

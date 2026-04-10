@@ -9,6 +9,39 @@ import { LangSwitcher } from "./components/LangSwitcher";
 import { MapView } from "./components/MapView";
 import { LoginPage } from "./pages/LoginPage";
 
+/** Sync arrival card t values with their linked departure's nextDayArrival */
+function syncCrossNightArrivals(days: Day[]): Day[] {
+  // Build map: arrival card id → departure card's current nextDayArrival
+  const updates: Record<string, number> = {};
+  for (const d of days) {
+    for (const s of getSpotsForDay(d)) {
+      if (s.nextDayArrival !== undefined && s.linkedSpotId) {
+        updates[s.linkedSpotId] = s.nextDayArrival;
+      }
+    }
+  }
+  if (Object.keys(updates).length === 0) return days;
+
+  let anyChange = false;
+  const newDays = days.map((d) => {
+    const spots = getSpotsForDay(d);
+    let changed = false;
+    const updatedSpots = spots.map((s) => {
+      if (s.isArrival && s.id in updates && updates[s.id] !== s.t) {
+        changed = true;
+        anyChange = true;
+        return { ...s, t: updates[s.id] };
+      }
+      return s;
+    });
+    if (!changed) return d;
+    return d.st === "u" && d.vs && d.av !== undefined
+      ? { ...d, vs: d.vs.map((v, i) => i === d.av ? { ...v, sp: updatedSpots } : v) }
+      : { ...d, sp: updatedSpots };
+  });
+  return anyChange ? newDays : days;
+}
+
 const pill: React.CSSProperties = {
   display: "inline-flex", alignItems: "center", gap: 4,
   padding: "5px 12px", borderRadius: 100, fontSize: 12,
@@ -137,6 +170,12 @@ export default function App() {
     setMoveSpotPickerSpotId(null);
     setWizardOpen(false);
   }, [selDay]);
+
+  // CX: sync arrival card t whenever a linked departure's nextDayArrival changes
+  useEffect(() => {
+    const synced = syncCrossNightArrivals(days);
+    if (synced !== days) setDays(synced);
+  }, [days]);
 
   // ── Handlers ────────────────────────────────────────────────────
 

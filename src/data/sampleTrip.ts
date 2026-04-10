@@ -10,7 +10,7 @@ export const SAMPLE_TRIP: Trip = {
 
 export const SAMPLE_DAYS: Day[] = [
   { id:1, n:1, dt:"8/9 六", st:"c", lb:"台北 → 杜拜", sp:[
-    { id:"a1", nm:"桃園機場出發", t:1430, d:30, tr:0, la:25.08, ln:121.23 },
+    { id:"a1", nm:"桃園機場出發", t:1400, d:20, tr:10, la:25.08, ln:121.23 },
   ]},
   { id:2, n:2, dt:"8/10 一", st:"c", lb:"杜拜 → 米蘭", sp:[
     { id:"b1", nm:"杜拜入境 / 轉機飯店", t:275, d:360, tr:0, la:25.25, ln:55.37 },
