@@ -95,6 +95,9 @@ export default function App() {
   // 改動 3: inline transit-time (tr) editing
   const [editingTrSpotId, setEditingTrSpotId] = useState<string | null>(null);
 
+  // DL: inline day label editing
+  const [editingDayLabelId, setEditingDayLabelId] = useState<number | null>(null);
+
   // E-6: cascade delta badges
   const [spotDeltas, setSpotDeltas] = useState<Record<string, number>>({});
 
@@ -547,6 +550,15 @@ export default function App() {
     setEditingTrSpotId(null);
   };
 
+  // DL: update day label
+  const updateDayLabel = (dayId: number, val: string) => {
+    const label = val.trim();
+    if (label) {
+      setDays((prev) => prev.map((d) => d.id === dayId ? { ...d, lb: label } : d));
+    }
+    setEditingDayLabelId(null);
+  };
+
   // ── C-1 ~ C-4: Conflict resolution handlers ─────────────────────
 
   /** C-1: Auto-adjust all conflicting spots in the selected day */
@@ -782,7 +794,23 @@ export default function App() {
                   <span style={{ fontSize: 11, fontWeight: 600, color: C.ink }}>D{d.n}</span>
                   <span style={{ fontSize: 9, color: C.muted }}>{d.dt}</span>
                 </div>
-                <p style={{ fontSize: 10, color: C.muted, margin: "1px 0 0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.lb}</p>
+                {editingDayLabelId === d.id
+                  ? <input type="text" defaultValue={d.lb} autoFocus
+                      aria-label={`編輯天標籤 D${d.n}`}
+                      style={{ fontSize: 10, color: C.ink, margin: "1px 0 0", width: "100%", border: `1px solid ${C.accent}`, borderRadius: 4, padding: "1px 4px", outline: "none", boxSizing: "border-box" }}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") updateDayLabel(d.id, e.currentTarget.value);
+                        if (e.key === "Escape") setEditingDayLabelId(null);
+                      }}
+                      onBlur={(e) => updateDayLabel(d.id, e.currentTarget.value)}
+                    />
+                  : <button onClick={(e) => { e.stopPropagation(); setEditingDayLabelId(d.id); }}
+                      aria-label={`編輯天標籤 D${d.n}`}
+                      style={{ fontSize: 10, color: C.muted, margin: "1px 0 0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", background: "none", border: "none", cursor: "text", padding: 0, textAlign: "left", width: "100%", display: "block" }}>
+                      {d.lb}
+                    </button>
+                }
                 {d.st === "u" && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 100, background: C.warnBg, color: C.warnText, fontWeight: 500, marginTop: 2, display: "inline-block" }}>{t.uncertainLabel}</span>}
               </div>
               {/* E-2: Delete day button */}
@@ -805,7 +833,7 @@ export default function App() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
                 <div>
                   <h3 style={{ fontSize: 14, fontWeight: 700, color: C.ink, margin: 0 }}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: dc, marginRight: 6 }} />Day {dd.n} — {dd.dt}</h3>
-                  <p style={{ fontSize: 11, color: C.muted, margin: "2px 0 0" }}>{dd.lb}</p>
+                  <p data-testid="day-label-header" style={{ fontSize: 11, color: C.muted, margin: "2px 0 0" }}>{dd.lb}</p>
                 </div>
                 <div style={{ display: "flex", gap: 8, fontSize: 10 }}>
                   <div style={{ textAlign: "center" }}><div style={{ fontSize: 13, fontWeight: 600, color: nC ? C.errText : C.successText }}>{nC}</div><div style={{ color: C.muted }}>{t.conflicts}</div></div>
