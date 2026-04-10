@@ -94,4 +94,30 @@ export const zhTW = {
   transitNameLabel: "交通名稱",
   transitNamePlaceholder: "例：搭機 TPE → DXB",
   transitNameRequired: "請輸入交通名稱",
+
+  // T-2: 跨夜交通
+  transitHours: "小時",
+  transitMins: "分鐘",
+  arrivalTime: "抵達時間",
+  nextDayBadge: "+1天",
+  arrivalLabel: "(抵達)",
+  linkedTransitDeleteMsg: "此為跨夜交通，確定要同時刪除出發與抵達卡片？",
+  linkedTransitDeleteBtn: "確認刪除",
+  autoCreatedDay: "（系統自動新增）",
+
+  // T-3: 時區感知交通
+  transitTzOffset: "時區差（小時）",
+  transitTzHint: "目的地 UTC − 出發地 UTC（往西飛為負值，如台北→杜拜 = −4）",
+  transitDepLabel: "出發地機場代碼",
+  transitDestLabel: "目的地機場代碼",
+  transitUnknownCode: "無法辨識，請手動填寫時區差",
+  transitTzAutoDetected: "自動推算",
+
+  // C-1 ~ C-5: 衝突解決
+  conflictShortenDur: "縮短時長",
+  conflictMoveDay: "移至他日",
+  conflictWizard: "解決精靈",
+  conflictWizardTitle: "衝突解決精靈",
+  conflictWizardDesc: "以下景點有時間衝突，請逐一處理：",
+  conflictWizardClose: "關閉",
 };

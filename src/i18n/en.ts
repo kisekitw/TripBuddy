@@ -85,4 +85,30 @@ export const en = {
   transitNameLabel: "Transit name",
   transitNamePlaceholder: "e.g. Flight TPE → DXB",
   transitNameRequired: "Please enter a transit name",
+
+  // T-2: Cross-midnight transit
+  transitHours: "Hours",
+  transitMins: "Minutes",
+  arrivalTime: "Arrival time",
+  nextDayBadge: "+1day",
+  arrivalLabel: "(arrival)",
+  linkedTransitDeleteMsg: "This is a cross-midnight transit. Delete both departure and arrival cards?",
+  linkedTransitDeleteBtn: "Confirm delete",
+  autoCreatedDay: "(auto-created)",
+
+  // T-3: Timezone-aware transit
+  transitTzOffset: "Timezone offset (hours)",
+  transitTzHint: "Destination UTC − Departure UTC (negative = flying west, e.g. Taipei→Dubai = −4)",
+  transitDepLabel: "Departure (IATA)",
+  transitDestLabel: "Destination (IATA)",
+  transitUnknownCode: "Unknown — set offset manually",
+  transitTzAutoDetected: "Auto-detected",
+
+  // C-1 ~ C-5: Conflict resolution
+  conflictShortenDur: "Shorten duration",
+  conflictMoveDay: "Move to another day",
+  conflictWizard: "Conflict Wizard",
+  conflictWizardTitle: "Conflict Resolution Wizard",
+  conflictWizardDesc: "The following spots have time conflicts. Please address them one by one:",
+  conflictWizardClose: "Close",
 };

@@ -14,6 +14,12 @@ export interface Spot {
   isA?: boolean;     // is alternative slot
   ao?: AltOption[];  // alternative options
   si?: number;       // selected alternative index
+  // T-2: cross-midnight transit
+  nextDayArrival?: number;   // arrival time (minutes), defined = this is a departure card
+  isArrival?: boolean;       // true = auto-generated arrival card
+  linkedSpotId?: string;     // links departure ↔ arrival cards
+  // T-3: timezone-aware transit
+  tzOffset?: number;         // destination UTC offset − departure UTC offset (e.g. Taipei→Dubai = -4)
 }
 
 export interface AltOption {

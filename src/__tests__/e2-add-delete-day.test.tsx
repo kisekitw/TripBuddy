@@ -144,7 +144,7 @@ describe("E-2: 新增 / 刪除天數", () => {
      * Then   按鈕為 disabled
      */
     it("should disable delete button when only one day remains", async () => {
-      const user = await gotoNewTripEditor();
+      await gotoNewTripEditor();
 
       const deleteBtn = screen.getByRole("button", { name: "刪除 D1" });
       expect(deleteBtn).toBeDisabled();

@@ -3,7 +3,7 @@ import type { Locale } from "./i18n";
 import type { Day, Trip, User, Spot } from "./types";
 import { getTranslations } from "./i18n";
 import { colors as C, dayColors as DC } from "./utils/colors";
-import { fmt, getSpotsForDay, getConflictLevel, recalcDay } from "./utils";
+import { fmt, getSpotsForDay, getConflictLevel, recalcDay, autoAdjustDay, lookupAirport } from "./utils";
 import { SAMPLE_TRIP, SAMPLE_DAYS } from "./data/sampleTrip";
 import { LangSwitcher } from "./components/LangSwitcher";
 import { MapView } from "./components/MapView";
@@ -18,8 +18,13 @@ const pill: React.CSSProperties = {
 
 export default function App() {
   const [lang, setLang] = useState<Locale>("zh-TW");
-  const [view, setView] = useState<"login" | "trips" | "editor">("login");
-  const [user, setUser] = useState<User | null>(null);
+  // Restore session from sessionStorage so page refresh doesn't force re-login
+  const [user, setUser] = useState<User | null>(() => {
+    try { const s = sessionStorage.getItem("tb_user"); return s ? JSON.parse(s) : null; } catch { return null; }
+  });
+  const [view, setView] = useState<"login" | "trips" | "editor">(() => {
+    try { return sessionStorage.getItem("tb_user") ? "trips" : "login"; } catch { return "login"; }
+  });
 
   // E-1: trip list state  (E-5: lazy-init from localStorage)
   const [trips, setTrips] = useState<Trip[]>(() => {
@@ -59,6 +64,26 @@ export default function App() {
   const [transitFormName, setTransitFormName] = useState("");
   const [transitFormErr, setTransitFormErr] = useState("");
 
+  // T-2: cross-midnight transit form state
+  const [transitFormTime, setTransitFormTime] = useState("09:00");
+  const [transitFormHours, setTransitFormHours] = useState(1);
+  const [transitFormMins, setTransitFormMins] = useState(0);
+  const [linkedDeleteTargetId, setLinkedDeleteTargetId] = useState<string | null>(null);
+
+  // T-3: timezone-aware transit (string state to allow negative number input)
+  const [transitFormTzOffset, setTransitFormTzOffset] = useState("0");
+  const [transitFormDep, setTransitFormDep] = useState("");
+  const [transitFormDest, setTransitFormDest] = useState("");
+
+  useEffect(() => {
+    if (!transitModalOpen) return;
+    const depInfo = lookupAirport(transitFormDep);
+    const destInfo = lookupAirport(transitFormDest);
+    if (depInfo && destInfo) {
+      setTransitFormTzOffset(String(destInfo.utc - depInfo.utc));
+    }
+  }, [transitFormDep, transitFormDest, transitModalOpen]);
+
   // E-4: inline time / duration editing
   const [editingTimeSpotId, setEditingTimeSpotId] = useState<string | null>(null);
   const [editingDurSpotId, setEditingDurSpotId] = useState<string | null>(null);
@@ -66,15 +91,42 @@ export default function App() {
   // E-6: cascade delta badges
   const [spotDeltas, setSpotDeltas] = useState<Record<string, number>>({});
 
+  // C-2: ignored conflicts (Set of spotIds)
+  const [ignoredConflicts, setIgnoredConflicts] = useState<Set<string>>(new Set());
+  // C-4: day picker for "move spot to day"
+  const [moveSpotPickerSpotId, setMoveSpotPickerSpotId] = useState<string | null>(null);
+  // C-5: resolution wizard
+  const [wizardOpen, setWizardOpen] = useState(false);
+
   const fileRef = useRef<HTMLInputElement>(null);
   const t = getTranslations(lang);
+
+  // Persist user session to sessionStorage (survives page refresh, cleared on tab close)
+  useEffect(() => {
+    if (user) { sessionStorage.setItem("tb_user", JSON.stringify(user)); }
+    else { sessionStorage.removeItem("tb_user"); }
+  }, [user]);
 
   // E-5: persist trips & days to localStorage whenever they change
   useEffect(() => { localStorage.setItem("tb_trips", JSON.stringify(trips)); }, [trips]);
   useEffect(() => { localStorage.setItem("tb_tripDaysMap", JSON.stringify(tripDaysMap)); }, [tripDaysMap]);
 
+  // Auto-save editor state: sync `days` → `tripDaysMap` on every edit so closing
+  // the browser tab while in the editor does NOT lose unsaved changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (view === "editor") {
+      setTripDaysMap((prev) => ({ ...prev, [trip.id]: days }));
+    }
+  }, [days]); // intentionally omit view/trip.id — only trigger on days change
+
   // E-6: clear delta badges whenever selected day changes
-  useEffect(() => { setSpotDeltas({}); }, [selDay]);
+  // C-4/C-5: also reset picker & wizard on day switch
+  useEffect(() => {
+    setSpotDeltas({});
+    setMoveSpotPickerSpotId(null);
+    setWizardOpen(false);
+  }, [selDay]);
 
   // ── Handlers ────────────────────────────────────────────────────
 
@@ -172,7 +224,7 @@ export default function App() {
   // ── E-3: Spot CRUD ───────────────────────────────────────────────
 
   const openAddSpot = () => {
-    setEditingSpotId(null); setSpotFormName(""); setSpotFormErr(""); setSpotModalOpen(true);
+    setSpotModalType("spot"); setEditingSpotId(null); setSpotFormName(""); setSpotFormErr(""); setSpotModalOpen(true);
   };
 
   const openEditSpot = (spot: Spot) => {
@@ -195,7 +247,7 @@ export default function App() {
       } else {
         const last = spots[spots.length - 1];
         const newT = last ? last.t + last.d + (last.tr || 0) : 540;
-        spots = [...spots, { id: `sp-${Date.now()}`, nm: name, t: newT, d: 60, tr: 15, la: 0, ln: 0 } as Spot];
+        spots = [...spots, { id: `sp-${Date.now()}`, nm: name, t: newT, d: 60, tr: 15, la: 0, ln: 0, type: "spot" } as Spot];
       }
       const upd: Day = d.st === "u" && d.vs && d.av !== undefined
         ? { ...d, vs: d.vs.map((v, i) => i === d.av ? { ...v, sp: spots } : v) }
@@ -206,6 +258,16 @@ export default function App() {
   };
 
   const deleteSpot = (spotId: string) => {
+    // T-2: if linked spot, show confirm dialog instead of direct delete
+    let isLinked = false;
+    for (const d of days) {
+      for (const s of getSpotsForDay(d)) {
+        if (s.id === spotId && s.linkedSpotId) { isLinked = true; break; }
+      }
+      if (isLinked) break;
+    }
+    if (isLinked) { setLinkedDeleteTargetId(spotId); return; }
+
     setDays((prev) => prev.map((d) => {
       if (d.id !== selDay) return d;
       const spots = getSpotsForDay(d).filter((s) => s.id !== spotId);
@@ -216,67 +278,127 @@ export default function App() {
     }));
   };
 
+  /** T-2: Confirm deletion of both linked departure + arrival cards */
+  const confirmLinkedDelete = () => {
+    if (!linkedDeleteTargetId) return;
+    let linkedId: string | undefined;
+    for (const d of days) {
+      for (const s of getSpotsForDay(d)) {
+        if (s.id === linkedDeleteTargetId && s.linkedSpotId) { linkedId = s.linkedSpotId; break; }
+      }
+      if (linkedId) break;
+    }
+    const idsToRemove = new Set([linkedDeleteTargetId, ...(linkedId ? [linkedId] : [])]);
+    setDays((prev) => prev.map((d) => {
+      const before = getSpotsForDay(d);
+      const spots = before.filter((s) => !idsToRemove.has(s.id));
+      if (spots.length === before.length) return d;
+      const upd: Day = d.st === "u" && d.vs && d.av !== undefined
+        ? { ...d, vs: d.vs.map((v, i) => i === d.av ? { ...v, sp: spots } : v) }
+        : { ...d, sp: spots };
+      return tMode === "auto" ? recalcDay(upd) : upd;
+    }));
+    setLinkedDeleteTargetId(null);
+  };
+
   // ── T-1: Transit CRUD ────────────────────────────────────────────
 
   const openAddTransit = () => {
-    setTransitFormName(""); setTransitFormErr(""); setTransitModalOpen(true);
+    setTransitFormName(""); setTransitFormErr("");
+    setTransitFormTime("09:00"); setTransitFormHours(1); setTransitFormMins(0);
+    setTransitFormTzOffset("0");
+    setTransitModalOpen(true);
   };
 
   const closeTransitModal = () => {
     setTransitModalOpen(false); setTransitFormName(""); setTransitFormErr("");
+    setTransitFormTime("09:00"); setTransitFormHours(1); setTransitFormMins(0);
+    setTransitFormTzOffset("0"); setTransitFormDep(""); setTransitFormDest("");
   };
 
   const handleSaveTransit = () => {
     if (!transitFormName.trim()) { setTransitFormErr(t.transitNameRequired); return; }
     const name = transitFormName.trim();
-    setDays((prev) => prev.map((d) => {
-      if (d.id !== selDay) return d;
-      const spots = getSpotsForDay(d);
-      const last = spots[spots.length - 1];
-      const newT = last ? last.t + last.d + (last.tr || 0) : 540;
-      const newSpot = { id: `tr-${Date.now()}`, nm: name, t: newT, d: 60, tr: 0, la: 0, ln: 0, type: "transit" as const };
-      const updated = [...spots, newSpot];
-      const upd: Day = d.st === "u" && d.vs && d.av !== undefined
-        ? { ...d, vs: d.vs.map((v, i) => i === d.av ? { ...v, sp: updated } : v) }
-        : { ...d, sp: updated };
-      return tMode === "auto" ? recalcDay(upd) : upd;
-    }));
+
+    const m = transitFormTime.match(/^(\d{1,2}):(\d{2})$/);
+    const depT = m ? parseInt(m[1]) * 60 + parseInt(m[2]) : 540;
+    const totalDur = transitFormHours * 60 + transitFormMins;
+    // T-3: apply timezone offset to get local arrival time at destination
+    const tz = parseInt(transitFormTzOffset) || 0;
+    const correctedArrivalMin = depT + totalDur + tz * 60;
+
+    if (correctedArrivalMin < 1440) {
+      // ── Same-day transit ──
+      setDays((prev) => prev.map((d) => {
+        if (d.id !== selDay) return d;
+        const spots = getSpotsForDay(d);
+        const newSpot: Spot = { id: `tr-${Date.now()}`, nm: name, t: depT, d: totalDur || 60, tr: 0, la: 0, ln: 0, type: "transit" };
+        const updated = [...spots, newSpot];
+        const upd: Day = d.st === "u" && d.vs && d.av !== undefined
+          ? { ...d, vs: d.vs.map((v, i) => i === d.av ? { ...v, sp: updated } : v) }
+          : { ...d, sp: updated };
+        return upd;
+      }));
+    } else {
+      // ── Cross-midnight transit: linked departure + arrival ──
+      const nextDayT = correctedArrivalMin - 1440;
+      const ts = Date.now();
+      const depId = `tr-dep-${ts}`;
+      const arrId = `tr-arr-${ts}`;
+
+      const departureSpot: Spot = {
+        id: depId, nm: name, t: depT, d: totalDur,
+        type: "transit", nextDayArrival: nextDayT,
+        linkedSpotId: arrId, la: 0, ln: 0, tr: 0,
+        ...(tz !== 0 ? { tzOffset: tz } : {}),
+      };
+      const arrivalSpot: Spot = {
+        id: arrId, nm: name, t: nextDayT, d: 0,
+        type: "transit", isArrival: true,
+        linkedSpotId: depId, la: 0, ln: 0, tr: 0,
+      };
+
+      setDays((prev) => {
+        const dayIdx = prev.findIndex((d) => d.id === selDay);
+        if (dayIdx === -1) return prev;
+
+        // Insert departure into current day
+        const withDep = prev.map((d) => {
+          if (d.id !== selDay) return d;
+          const spots = getSpotsForDay(d);
+          const updated = [...spots, departureSpot];
+          return d.st === "u" && d.vs && d.av !== undefined
+            ? { ...d, vs: d.vs.map((v, i) => i === d.av ? { ...v, sp: updated } : v) }
+            : { ...d, sp: updated };
+        });
+
+        // Prepend arrival to next day (create if not exists)
+        if (dayIdx + 1 < withDep.length) {
+          return withDep.map((d, i) => {
+            if (i !== dayIdx + 1) return d;
+            const spots = getSpotsForDay(d);
+            const updated = [arrivalSpot, ...spots];
+            return d.st === "u" && d.vs && d.av !== undefined
+              ? { ...d, vs: d.vs.map((v, i2) => i2 === d.av ? { ...v, sp: updated } : v) }
+              : { ...d, sp: updated };
+          });
+        } else {
+          const maxN = withDep.length > 0 ? Math.max(...withDep.map((d) => d.n)) : 0;
+          const maxId = withDep.length > 0 ? Math.max(...withDep.map((d) => d.id)) : 0;
+          const newDay: Day = {
+            id: maxId + 1, n: maxN + 1, dt: "", st: "c",
+            lb: t.addDayLabel.replace("{n}", String(maxN + 1)),
+            sp: [arrivalSpot],
+          };
+          return [...withDep, newDay];
+        }
+      });
+    }
+
     closeTransitModal();
   };
 
-  // ── E-4: Inline spot time / duration editing + step buttons ────────
-
-  /** Step duration by ±delta minutes (used by ▾▴ buttons) */
-  const stepDuration = (dayId: number, spotId: string, delta: number) => {
-    const currentDay = days.find((d) => d.id === dayId);
-    if (!currentDay) return;
-    const spot = getSpotsForDay(currentDay).find((s) => s.id === spotId);
-    if (!spot) return;
-    const newD = Math.max(5, spot.d + delta);
-    const oldTimes = Object.fromEntries(getSpotsForDay(currentDay).map((s) => [s.id, s.t]));
-    const newDays = days.map((d) => {
-      if (d.id !== dayId) return d;
-      const spots = getSpotsForDay(d).map((s) => s.id === spotId ? { ...s, d: newD } : s);
-      const upd: Day = d.st === "u" && d.vs && d.av !== undefined
-        ? { ...d, vs: d.vs.map((v, i) => i === d.av ? { ...v, sp: spots } : v) }
-        : { ...d, sp: spots };
-      return tMode === "auto" ? recalcDay(upd) : upd;
-    });
-    if (tMode === "auto") {
-      const newDay = newDays.find((d) => d.id === dayId);
-      if (newDay) {
-        const deltas: Record<string, number> = {};
-        getSpotsForDay(newDay).forEach((s) => {
-          const dv = s.t - (oldTimes[s.id] ?? s.t);
-          if (dv !== 0) deltas[s.id] = dv;
-        });
-        setSpotDeltas(deltas);
-      }
-    } else { setSpotDeltas({}); }
-    setDays(newDays);
-  };
-
-  // ── E-4 (original) ───────────────────────────────────────────────
+  // ── E-4: Inline spot time / duration editing ────────────────────
 
   const updateSpotTime = (dayId: number, spotId: string, val: string) => {
     const m = val.match(/^(\d{1,2}):(\d{2})$/);
@@ -346,6 +468,66 @@ export default function App() {
     }
     setDays(newDays);
     setEditingDurSpotId(null);
+  };
+
+  // ── C-1 ~ C-4: Conflict resolution handlers ─────────────────────
+
+  /** C-1: Auto-adjust all conflicting spots in the selected day */
+  const handleAutoAdjust = () => {
+    if (selDay === null) return;
+    setDays((prev) => prev.map((d) => d.id === selDay ? autoAdjustDay(d) : d));
+  };
+
+  /** C-2: Mark all current Level-2 spots as ignored (suppress panel) */
+  const handleKeepAnyway = (conflictSpots: Spot[]) => {
+    const ids = conflictSpots.map((s) => s.id);
+    setIgnoredConflicts((prev) => new Set([...prev, ...ids]));
+  };
+
+  /** C-3: Fix a single spot's closing-time conflict (shorten or reschedule) */
+  const handleShortenDuration = (spotId: string) => {
+    setDays((prev) => prev.map((d) => {
+      if (d.id !== selDay) return d;
+      const spots = getSpotsForDay(d).map((s) => {
+        if (s.id !== spotId || !s.cl) return s;
+        if (s.t >= s.cl) return { ...s, t: Math.max(0, s.cl - s.d) };
+        if (s.t + s.d > s.cl) return { ...s, d: Math.max(1, s.cl - s.t) };
+        return s;
+      });
+      const upd: Day = d.st === "u" && d.vs && d.av !== undefined
+        ? { ...d, vs: d.vs.map((v, i) => i === d.av ? { ...v, sp: spots } : v) }
+        : { ...d, sp: spots };
+      return tMode === "auto" ? recalcDay(upd) : upd;
+    }));
+  };
+
+  /** C-4: Move a spot from the current day to targetDayId */
+  const handleMoveSpotToDay = (spotId: string, targetDayId: number) => {
+    setDays((prev) => {
+      let movedSpot: Spot | undefined;
+      const pass1 = prev.map((d) => {
+        if (d.id !== selDay) return d;
+        const spots = getSpotsForDay(d).filter((s) => {
+          if (s.id === spotId) { movedSpot = s; return false; }
+          return true;
+        });
+        const upd: Day = d.st === "u" && d.vs && d.av !== undefined
+          ? { ...d, vs: d.vs.map((v, i) => i === d.av ? { ...v, sp: spots } : v) }
+          : { ...d, sp: spots };
+        return tMode === "auto" ? recalcDay(upd) : upd;
+      });
+      if (!movedSpot) return prev;
+      const moved = movedSpot;
+      return pass1.map((d) => {
+        if (d.id !== targetDayId) return d;
+        const spots = [...getSpotsForDay(d), moved];
+        const upd: Day = d.st === "u" && d.vs && d.av !== undefined
+          ? { ...d, vs: d.vs.map((v, i) => i === d.av ? { ...v, sp: spots } : v) }
+          : { ...d, sp: spots };
+        return tMode === "auto" ? recalcDay(upd) : upd;
+      });
+    });
+    setMoveSpotPickerSpotId(null);
   };
 
   // ── Views ────────────────────────────────────────────────────────
@@ -488,7 +670,8 @@ export default function App() {
   const sp = dd ? getSpotsForDay(dd) : [];
   const di = days.findIndex((d) => d.id === selDay);
   const dc = DC[Math.max(0, di) % DC.length];
-  const nC = sp.filter((s) => getConflictLevel(s) >= 2).length;
+  const conflictSpots = sp.filter((s) => getConflictLevel(s) >= 2 && !ignoredConflicts.has(s.id));
+  const nC = conflictSpots.length;
   const nW = sp.filter((s) => getConflictLevel(s) === 1).length;
 
   return (
@@ -550,7 +733,7 @@ export default function App() {
                 <div style={{ display: "flex", gap: 8, fontSize: 10 }}>
                   <div style={{ textAlign: "center" }}><div style={{ fontSize: 13, fontWeight: 600, color: nC ? C.errText : C.successText }}>{nC}</div><div style={{ color: C.muted }}>{t.conflicts}</div></div>
                   <div style={{ textAlign: "center" }}><div style={{ fontSize: 13, fontWeight: 600, color: nW ? C.warnText : C.successText }}>{nW}</div><div style={{ color: C.muted }}>{t.warnings}</div></div>
-                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{sp.length ? fmt(sp[sp.length - 1].t + sp[sp.length - 1].d) : "--"}</div><div style={{ color: C.muted }}>{t.ends}</div></div>
+                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{(() => { const ls = sp[sp.length - 1]; return ls ? (ls.nextDayArrival !== undefined ? `${fmt(ls.t)}+1` : ls.isArrival ? fmt(ls.t) : fmt(ls.t + ls.d)) : "--"; })()}</div><div style={{ color: C.muted }}>{t.ends}</div></div>
                 </div>
               </div>
               {dd.st === "u" && dd.vs && (
@@ -571,9 +754,12 @@ export default function App() {
                 const deltaBadge = spotDeltas[s.id] !== undefined && spotDeltas[s.id] !== 0
                   ? <span data-testid="delta-badge" style={{ fontSize: 8, padding: "1px 5px", borderRadius: 100, background: C.infoBg, color: C.infoText, fontWeight: 600, border: `1px solid ${C.infoBorder}`, whiteSpace: "nowrap" }}>{spotDeltas[s.id] > 0 ? "+" : ""}{spotDeltas[s.id]}{t.min}</span>
                   : null;
+                const durText = (s.type === "transit" && s.d >= 60)
+                  ? `${Math.floor(s.d / 60)}h${s.d % 60 > 0 ? ` ${s.d % 60}m` : ""}`
+                  : `${s.d} ${t.min}`;
                 const durEl = (bg: string, color: string, borderColor: string) => editingDurSpotId === s.id
                   ? <input type="number" defaultValue={s.d} aria-label={`${t.durationLabel} ${s.nm}`} min={5} autoFocus onKeyDown={(e) => { if (e.key === "Enter") updateSpotDuration(dd.id, s.id, e.currentTarget.value); if (e.key === "Escape") setEditingDurSpotId(null); }} style={{ width: 50, fontSize: 11, border: `1px solid ${borderColor}`, borderRadius: 6, padding: "1px 4px", outline: "none" }} />
-                  : <button onClick={() => setEditingDurSpotId(s.id)} aria-label={`${t.durationLabel} ${s.nm}`} style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color, background: bg, border: "none", borderRadius: 20, padding: "2px 8px", cursor: "pointer" }}><span style={{ fontSize: 14 }}>⏱</span>{s.d} {t.min}</button>;
+                  : <button onClick={() => setEditingDurSpotId(s.id)} aria-label={`${t.durationLabel} ${s.nm}`} style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color, background: bg, border: "none", borderRadius: 20, padding: "2px 8px", cursor: "pointer" }}><span style={{ fontSize: 14 }}>⏱</span>{durText}</button>;
 
                 return (
                   <div key={s.id}>
@@ -614,22 +800,57 @@ export default function App() {
                         </div>
 
                       ) : s.type === "transit" ? (
-                        /* ── Transit card ── */
-                        <div data-testid="transit-item" style={{ flex: 1, background: "#f0f4ff", border: `1px solid #c8d6f8`, borderRadius: 10, padding: "8px 10px" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <span style={{ fontSize: 14, flexShrink: 0 }}>🚌</span>
-                            <span style={{ fontSize: 12, fontWeight: 500, color: "#3a4a7a" }}>{s.nm}</span>
-                            {durEl("#dce4ff", "#3a4a7a", "#6366f1")}
-                            {deltaBadge}
-                            <span style={{ flex: 1 }} />
-                            {editingTimeSpotId === s.id
-                              ? <input type="text" defaultValue={fmt(s.t)} aria-label={`${t.startTimeLabel} ${s.nm}`} autoFocus onKeyDown={(e) => { if (e.key === "Enter") updateSpotTime(dd.id, s.id, e.currentTarget.value); if (e.key === "Escape") setEditingTimeSpotId(null); }} style={{ width: 44, fontSize: 11, border: `1px solid #6366f1`, borderRadius: 4, padding: "1px 4px", outline: "none" }} />
-                              : <button onClick={() => setEditingTimeSpotId(s.id)} aria-label={`${t.startTimeLabel} ${s.nm}`} style={{ fontSize: 11, color: "#6366f1", background: "none", border: "none", cursor: "pointer", padding: "1px 4px" }}>{fmt(s.t)}</button>
-                            }
-                            <button aria-label={`${t.editSpotLabel} ${s.nm}`} onClick={() => openEditSpot(s)} style={{ background: "none", border: "none", color: "#3a4a7a", cursor: "pointer", padding: "0 2px", display: "flex", alignItems: "center" }}>{pencilSvg}</button>
-                            <button aria-label={`${t.deleteSpotLabel} ${s.nm}`} onClick={() => deleteSpot(s.id)} style={{ fontSize: 13, background: "none", border: "none", color: "#3a4a7a", cursor: "pointer", padding: "0 2px" }}>×</button>
+                        s.isArrival ? (
+                          /* ── T-2: Arrival card ── */
+                          <div data-testid="transit-arrival" style={{ flex: 1, background: "#f0f4ff", border: `1px solid #c8d6f8`, borderLeft: "3px solid #6366f1", borderRadius: 10, padding: "8px 10px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontSize: 14, flexShrink: 0 }}>✈️</span>
+                              <span style={{ fontSize: 12, fontWeight: 500, color: "#3a4a7a" }}>{s.nm}</span>
+                              <span style={{ fontSize: 10, color: C.muted }}>{t.arrivalLabel}</span>
+                              <span style={{ flex: 1 }} />
+                              <span style={{ fontSize: 11, color: "#6366f1", padding: "1px 4px" }}>{fmt(s.t)}</span>
+                              <button aria-label={`${t.deleteSpotLabel} ${s.nm}`} onClick={() => deleteSpot(s.id)} style={{ fontSize: 13, background: "none", border: "none", color: "#3a4a7a", cursor: "pointer", padding: "0 2px" }}>×</button>
+                            </div>
                           </div>
-                        </div>
+                        ) : s.nextDayArrival !== undefined ? (
+                          /* ── T-2: Departure card (cross-midnight) ── */
+                          <div data-testid="transit-departure" style={{ flex: 1, background: "#f0f4ff", border: `1px solid #c8d6f8`, borderLeft: "3px solid #6366f1", borderRadius: 10, padding: "8px 10px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontSize: 14, flexShrink: 0 }}>✈️</span>
+                              <span style={{ fontSize: 12, fontWeight: 500, color: "#3a4a7a" }}>{s.nm}</span>
+                              {durEl("#dce4ff", "#3a4a7a", "#6366f1")}
+                              {deltaBadge}
+                              <span style={{ flex: 1 }} />
+                              <span style={{ fontSize: 11, color: "#6366f1", padding: "1px 4px" }}>
+                                {fmt(s.t)} → {fmt(s.nextDayArrival)}<span style={{ marginLeft: 2, fontSize: 10, color: C.accent, fontWeight: 600 }}>{t.nextDayBadge}</span>
+                                {s.tzOffset !== undefined && s.tzOffset !== 0 && (
+                                  <span style={{ marginLeft: 4, fontSize: 10, color: "#6366f1", fontWeight: 600, background: "#e8eeff", borderRadius: 4, padding: "1px 4px" }}>
+                                    {s.tzOffset > 0 ? `+${s.tzOffset}h` : `${s.tzOffset}h`}
+                                  </span>
+                                )}
+                              </span>
+                              <button aria-label={`${t.editSpotLabel} ${s.nm}`} onClick={() => openEditSpot(s)} style={{ background: "none", border: "none", color: "#3a4a7a", cursor: "pointer", padding: "0 2px", display: "flex", alignItems: "center" }}>{pencilSvg}</button>
+                              <button aria-label={`${t.deleteSpotLabel} ${s.nm}`} onClick={() => deleteSpot(s.id)} style={{ fontSize: 13, background: "none", border: "none", color: "#3a4a7a", cursor: "pointer", padding: "0 2px" }}>×</button>
+                            </div>
+                          </div>
+                        ) : (
+                          /* ── Regular transit card ── */
+                          <div data-testid="transit-item" style={{ flex: 1, background: "#f0f4ff", border: `1px solid #c8d6f8`, borderRadius: 10, padding: "8px 10px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontSize: 14, flexShrink: 0 }}>🚌</span>
+                              <span style={{ fontSize: 12, fontWeight: 500, color: "#3a4a7a" }}>{s.nm}</span>
+                              {durEl("#dce4ff", "#3a4a7a", "#6366f1")}
+                              {deltaBadge}
+                              <span style={{ flex: 1 }} />
+                              {editingTimeSpotId === s.id
+                                ? <input type="text" defaultValue={fmt(s.t)} aria-label={`${t.startTimeLabel} ${s.nm}`} autoFocus onKeyDown={(e) => { if (e.key === "Enter") updateSpotTime(dd.id, s.id, e.currentTarget.value); if (e.key === "Escape") setEditingTimeSpotId(null); }} style={{ width: 44, fontSize: 11, border: `1px solid #6366f1`, borderRadius: 4, padding: "1px 4px", outline: "none" }} />
+                                : <button onClick={() => setEditingTimeSpotId(s.id)} aria-label={`${t.startTimeLabel} ${s.nm}`} style={{ fontSize: 11, color: "#6366f1", background: "none", border: "none", cursor: "pointer", padding: "1px 4px" }}>{fmt(s.t)}</button>
+                              }
+                              <button aria-label={`${t.editSpotLabel} ${s.nm}`} onClick={() => openEditSpot(s)} style={{ background: "none", border: "none", color: "#3a4a7a", cursor: "pointer", padding: "0 2px", display: "flex", alignItems: "center" }}>{pencilSvg}</button>
+                              <button aria-label={`${t.deleteSpotLabel} ${s.nm}`} onClick={() => deleteSpot(s.id)} style={{ fontSize: 13, background: "none", border: "none", color: "#3a4a7a", cursor: "pointer", padding: "0 2px" }}>×</button>
+                            </div>
+                          </div>
+                        )
 
                       ) : (
                         /* ── Normal spot card ── */
@@ -672,11 +893,62 @@ export default function App() {
 
               {nC > 0 && (
                 <div style={{ marginTop: 8, background: C.errBg, border: `1px solid ${C.errBorder}`, borderRadius: 8, padding: 10 }}>
-                  <p style={{ fontSize: 11, fontWeight: 600, color: C.errText, margin: "0 0 6px" }}>{t.conflictN.replace("{n}", String(nC))}</p>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button style={{ ...pill, fontSize: 10, background: C.infoBg, color: C.infoText, borderColor: C.infoBorder }}>{t.aiAutoAdjust}</button>
-                    <button style={{ ...pill, fontSize: 10 }}>{t.keepAnyway}</button>
+                  {/* Header row */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <p style={{ fontSize: 11, fontWeight: 600, color: C.errText, margin: 0 }}>{t.conflictN.replace("{n}", String(nC))}</p>
+                    {/* C-5: Wizard button when >= 3 conflicts */}
+                    {nC >= 3 && (
+                      <button onClick={() => setWizardOpen(true)}
+                        style={{ ...pill, fontSize: 10, background: C.warnBg, color: C.warnText, borderColor: C.warnBorder }}>
+                        {t.conflictWizard}
+                      </button>
+                    )}
                   </div>
+                  {/* C-1 / C-2 global actions */}
+                  <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                    <button onClick={handleAutoAdjust}
+                      style={{ ...pill, fontSize: 10, background: C.infoBg, color: C.infoText, borderColor: C.infoBorder }}>
+                      {t.aiAutoAdjust}
+                    </button>
+                    <button onClick={() => handleKeepAnyway(conflictSpots)}
+                      style={{ ...pill, fontSize: 10 }}>
+                      {t.keepAnyway}
+                    </button>
+                  </div>
+                  {/* C-3 / C-4: per-spot actions */}
+                  {conflictSpots.map((s) => (
+                    <div key={s.id} style={{ marginBottom: 6 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 10, color: C.errText, fontWeight: 500, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.nm}</span>
+                        {/* C-3: shorten duration / reschedule */}
+                        {s.cl && (
+                          <button onClick={() => handleShortenDuration(s.id)}
+                            style={{ ...pill, fontSize: 9, padding: "3px 8px" }}>
+                            {t.conflictShortenDur}
+                          </button>
+                        )}
+                        {/* C-4: move to another day */}
+                        <div style={{ position: "relative" }}>
+                          <button onClick={() => setMoveSpotPickerSpotId(moveSpotPickerSpotId === s.id ? null : s.id)}
+                            style={{ ...pill, fontSize: 9, padding: "3px 8px" }}>
+                            {t.conflictMoveDay}
+                          </button>
+                          {moveSpotPickerSpotId === s.id && (
+                            <div data-testid="move-day-picker"
+                              style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, background: C.card, border: `1px solid ${C.light}`, borderRadius: 8, padding: 6, zIndex: 200, minWidth: 130, boxShadow: "0 4px 12px rgba(0,0,0,.1)" }}>
+                              {days.filter((d) => d.id !== selDay).map((d) => (
+                                <button key={d.id}
+                                  onClick={() => handleMoveSpotToDay(s.id, d.id)}
+                                  style={{ display: "block", width: "100%", padding: "5px 8px", fontSize: 11, background: "none", border: "none", cursor: "pointer", textAlign: "left", borderRadius: 4, color: C.ink }}>
+                                  D{d.n} {d.lb}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -734,22 +1006,155 @@ export default function App() {
         </div>
       )}
 
-      {/* T-1: Add transit modal */}
-      {transitModalOpen && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={closeTransitModal}>
-          <div role="dialog" aria-modal="true" aria-label={t.addTransitModalTitle}
-            onClick={(e) => e.stopPropagation()}
-            style={{ background: C.card, borderRadius: 20, padding: 28, width: 380, maxWidth: "90vw" }}>
-            <h3 style={{ fontSize: 17, fontWeight: 700, color: C.ink, margin: "0 0 20px" }}>{t.addTransitModalTitle}</h3>
-            <div style={{ marginBottom: 20 }}>
-              <label htmlFor="transit-name-input" style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "block", marginBottom: 5 }}>{t.transitNameLabel}</label>
-              <input id="transit-name-input" type="text" value={transitFormName} onChange={(e) => { setTransitFormName(e.target.value); setTransitFormErr(""); }} placeholder={t.transitNamePlaceholder} autoFocus
-                style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${transitFormErr ? C.errBorder : C.light}`, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-              {transitFormErr && <p style={{ fontSize: 11, color: C.errText, margin: "4px 0 0" }}>{transitFormErr}</p>}
+      {/* T-1 / T-2: Add transit modal */}
+      {transitModalOpen && (() => {
+        const tm = transitFormTime.match(/^(\d{1,2}):(\d{2})$/);
+        const depT = tm ? parseInt(tm[1]) * 60 + parseInt(tm[2]) : 0;
+        const totalDur = transitFormHours * 60 + transitFormMins;
+        const tzNum = parseInt(transitFormTzOffset) || 0;
+        const corrected = depT + totalDur + tzNum * 60;
+        const isCross = corrected >= 1440;
+        const arrFmt = fmt(isCross ? corrected - 1440 : Math.max(0, corrected));
+        const depInfo = lookupAirport(transitFormDep);
+        const destInfo = lookupAirport(transitFormDest);
+        const fmtUtc = (n: number) => `UTC${n >= 0 ? "+" : ""}${n}`;
+        return (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={closeTransitModal}>
+            <div role="dialog" aria-modal="true" aria-label={t.addTransitModalTitle}
+              onClick={(e) => e.stopPropagation()}
+              style={{ background: C.card, borderRadius: 20, padding: 28, width: 400, maxWidth: "90vw" }}>
+              <h3 style={{ fontSize: 17, fontWeight: 700, color: C.ink, margin: "0 0 16px" }}>{t.addTransitModalTitle}</h3>
+              {/* Name */}
+              <div style={{ marginBottom: 14 }}>
+                <label htmlFor="transit-name-input" style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "block", marginBottom: 5 }}>{t.transitNameLabel}</label>
+                <input id="transit-name-input" type="text" value={transitFormName} onChange={(e) => { setTransitFormName(e.target.value); setTransitFormErr(""); }} placeholder={t.transitNamePlaceholder} autoFocus
+                  style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${transitFormErr ? C.errBorder : C.light}`, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                {transitFormErr && <p style={{ fontSize: 11, color: C.errText, margin: "4px 0 0" }}>{transitFormErr}</p>}
+              </div>
+              {/* T-3: Departure → Destination */}
+              <div style={{ marginBottom: 14, display: "flex", gap: 8, alignItems: "flex-start" }}>
+                <div style={{ flex: 1 }}>
+                  <label htmlFor="transit-dep-input" style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "block", marginBottom: 5 }}>{t.transitDepLabel}</label>
+                  <input id="transit-dep-input" aria-label={t.transitDepLabel} value={transitFormDep}
+                    onChange={(e) => setTransitFormDep(e.target.value)}
+                    placeholder="TPE"
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 10, border: `1px solid ${C.light}`, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                  {depInfo && <p style={{ fontSize: 11, color: "#16a34a", margin: "3px 0 0" }}>✓ {depInfo.city} ({fmtUtc(depInfo.utc)})</p>}
+                  {transitFormDep && !depInfo && <p style={{ fontSize: 11, color: C.errText, margin: "3px 0 0" }}>{t.transitUnknownCode}</p>}
+                </div>
+                <span style={{ paddingTop: 30, color: C.muted, fontSize: 14 }}>→</span>
+                <div style={{ flex: 1 }}>
+                  <label htmlFor="transit-dest-input" style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "block", marginBottom: 5 }}>{t.transitDestLabel}</label>
+                  <input id="transit-dest-input" aria-label={t.transitDestLabel} value={transitFormDest}
+                    onChange={(e) => setTransitFormDest(e.target.value)}
+                    placeholder="DXB"
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 10, border: `1px solid ${C.light}`, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                  {destInfo && <p style={{ fontSize: 11, color: "#16a34a", margin: "3px 0 0" }}>✓ {destInfo.city} ({fmtUtc(destInfo.utc)})</p>}
+                  {transitFormDest && !destInfo && <p style={{ fontSize: 11, color: C.errText, margin: "3px 0 0" }}>{t.transitUnknownCode}</p>}
+                </div>
+              </div>
+              {/* Departure time */}
+              <div style={{ marginBottom: 14 }}>
+                <label htmlFor="transit-time-input" style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "block", marginBottom: 5 }}>{t.startTimeLabel}</label>
+                <input id="transit-time-input" type="text" aria-label={t.startTimeLabel} value={transitFormTime} onChange={(e) => setTransitFormTime(e.target.value)}
+                  style={{ width: 90, padding: "8px 12px", borderRadius: 10, border: `1px solid ${C.light}`, fontSize: 13, outline: "none" }} />
+              </div>
+              {/* Duration */}
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "block", marginBottom: 5 }}>{t.durationLabel}</label>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <input type="number" aria-label={t.transitHours} min={0} value={transitFormHours} onChange={(e) => setTransitFormHours(Math.max(0, parseInt(e.target.value) || 0))}
+                    style={{ width: 60, padding: "8px 10px", borderRadius: 10, border: `1px solid ${C.light}`, fontSize: 13, outline: "none" }} />
+                  <span style={{ fontSize: 12, color: C.muted }}>{t.transitHours}</span>
+                  <input type="number" aria-label={t.transitMins} min={0} max={59} value={transitFormMins} onChange={(e) => setTransitFormMins(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
+                    style={{ width: 60, padding: "8px 10px", borderRadius: 10, border: `1px solid ${C.light}`, fontSize: 13, outline: "none" }} />
+                  <span style={{ fontSize: 12, color: C.muted }}>{t.transitMins}</span>
+                </div>
+              </div>
+              {/* T-3: Timezone offset */}
+              <div style={{ marginBottom: 14 }}>
+                <label htmlFor="transit-tz-input" style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "block", marginBottom: 3 }}>{t.transitTzOffset}</label>
+                {depInfo && destInfo && (
+                  <p style={{ fontSize: 11, color: "#16a34a", margin: "0 0 4px" }}>
+                    {t.transitTzAutoDetected}：{depInfo.city}(+{depInfo.utc}) → {destInfo.city}(+{destInfo.utc})
+                  </p>
+                )}
+                {(!depInfo || !destInfo) && (
+                  <p style={{ fontSize: 11, color: C.muted, margin: "0 0 4px" }}>{t.transitTzHint}</p>
+                )}
+                <input id="transit-tz-input" type="text" aria-label={t.transitTzOffset}
+                  value={transitFormTzOffset}
+                  onChange={(e) => setTransitFormTzOffset(e.target.value)}
+                  style={{ width: 70, padding: "8px 10px", borderRadius: 10, border: `1px solid ${C.light}`, fontSize: 13, outline: "none" }} />
+              </div>
+              {/* Computed arrival */}
+              <div style={{ marginBottom: 20, padding: "8px 12px", borderRadius: 10, background: isCross ? "#fff8f0" : "#f8f9fa", border: `1px solid ${isCross ? C.accent + "40" : C.light}` }}>
+                <span style={{ fontSize: 12, color: C.muted }}>{t.arrivalTime}: </span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{arrFmt}</span>
+                {isCross && <span style={{ marginLeft: 6, fontSize: 11, color: C.accent, fontWeight: 600 }}>{t.nextDayBadge}</span>}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={closeTransitModal} style={{ flex: 1, padding: "11px 0", borderRadius: 100, border: `1px solid ${C.light}`, background: "transparent", color: C.muted, fontSize: 13, cursor: "pointer" }}>{t.spotCancelBtn}</button>
+                <button onClick={handleSaveTransit} style={{ flex: 1, padding: "11px 0", borderRadius: 100, border: "none", background: C.accent, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>{t.addSpotConfirmBtn}</button>
+              </div>
             </div>
+          </div>
+        );
+      })()}
+
+      {/* C-5: Resolution wizard modal */}
+      {wizardOpen && dd && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div role="dialog" aria-modal="true" aria-label={t.conflictWizardTitle}
+            style={{ background: C.card, borderRadius: 20, padding: 28, width: 420, maxWidth: "90vw", maxHeight: "80vh", overflowY: "auto" }}>
+            <h3 style={{ fontSize: 17, fontWeight: 700, color: C.ink, margin: "0 0 6px" }}>{t.conflictWizardTitle}</h3>
+            <p style={{ fontSize: 12, color: C.muted, margin: "0 0 16px" }}>{t.conflictWizardDesc}</p>
+            {getSpotsForDay(dd).filter((s) => getConflictLevel(s) >= 2 && !ignoredConflicts.has(s.id)).map((s) => (
+              <div key={s.id} style={{ padding: "10px 0", borderBottom: `1px solid ${C.light}` }}>
+                <p style={{ fontSize: 12, fontWeight: 600, color: C.errText, margin: "0 0 6px" }}>{s.nm}</p>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {s.cl && (
+                    <button onClick={() => handleShortenDuration(s.id)}
+                      style={{ ...pill, fontSize: 10 }}>
+                      {t.conflictShortenDur}
+                    </button>
+                  )}
+                  <button onClick={() => setMoveSpotPickerSpotId(moveSpotPickerSpotId === s.id ? null : s.id)}
+                    style={{ ...pill, fontSize: 10 }}>
+                    {t.conflictMoveDay}
+                  </button>
+                </div>
+                {moveSpotPickerSpotId === s.id && (
+                  <div style={{ marginTop: 6, background: C.bg, borderRadius: 8, padding: 6 }}>
+                    {days.filter((d) => d.id !== selDay).map((d) => (
+                      <button key={d.id}
+                        onClick={() => handleMoveSpotToDay(s.id, d.id)}
+                        style={{ display: "block", width: "100%", padding: "4px 8px", fontSize: 11, background: "none", border: "none", cursor: "pointer", textAlign: "left", borderRadius: 4, color: C.ink }}>
+                        D{d.n} {d.lb}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+            <div style={{ marginTop: 16 }}>
+              <button onClick={() => setWizardOpen(false)}
+                style={{ ...pill, width: "100%", justifyContent: "center" }}>
+                {t.conflictWizardClose}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* T-2: Linked transit delete confirmation dialog */}
+      {linkedDeleteTargetId !== null && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div role="alertdialog" aria-modal="true" style={{ background: C.card, borderRadius: 16, padding: 24, width: 340, maxWidth: "90vw" }}>
+            <p style={{ fontSize: 14, fontWeight: 600, color: C.ink, margin: "0 0 20px" }}>{t.linkedTransitDeleteMsg}</p>
             <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={closeTransitModal} style={{ flex: 1, padding: "11px 0", borderRadius: 100, border: `1px solid ${C.light}`, background: "transparent", color: C.muted, fontSize: 13, cursor: "pointer" }}>{t.spotCancelBtn}</button>
-              <button onClick={handleSaveTransit} style={{ flex: 1, padding: "11px 0", borderRadius: 100, border: "none", background: C.accent, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>{t.addSpotConfirmBtn}</button>
+              <button onClick={() => setLinkedDeleteTargetId(null)} style={{ flex: 1, padding: "10px 0", borderRadius: 100, border: `1px solid ${C.light}`, background: "transparent", color: C.muted, fontSize: 13, cursor: "pointer" }}>{t.deleteDayCancelBtn}</button>
+              <button onClick={confirmLinkedDelete} style={{ flex: 1, padding: "10px 0", borderRadius: 100, border: "none", background: C.errText, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>{t.linkedTransitDeleteBtn}</button>
             </div>
           </div>
         </div>
