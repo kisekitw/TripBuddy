@@ -103,6 +103,7 @@ export const en = {
   transitDestLabel: "Destination (IATA)",
   transitUnknownCode: "Unknown — set offset manually",
   transitTzAutoDetected: "Auto-detected",
+  transitTimeLabel: "Transit time",
 
   // C-1 ~ C-5: Conflict resolution
   conflictShortenDur: "Shorten duration",

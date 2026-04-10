@@ -41,10 +41,12 @@ describe("E-6: cascade delta badges", () => {
     it("should show -120分鐘 delta badges for downstream spots after shortening duration", async () => {
       const user = await selectD4();
 
+      // 180 → 60 (1h 0m)
       await user.click(screen.getByRole("button", { name: "停留時長 烏菲茲美術館" }));
-      const input = screen.getByLabelText("停留時長 烏菲茲美術館");
-      await user.clear(input);
-      await user.type(input, "60");
+      const hInput = screen.getByLabelText("停留時長 烏菲茲美術館 小時");
+      const mInput = screen.getByLabelText("停留時長 烏菲茲美術館 分鐘");
+      await user.clear(hInput); await user.type(hInput, "1");
+      await user.clear(mInput); await user.type(mInput, "0");
       await user.keyboard("{Enter}");
 
       const badges = screen.getAllByTestId("delta-badge");
@@ -63,10 +65,12 @@ describe("E-6: cascade delta badges", () => {
     it("should show +60分鐘 delta badges for downstream spots after extending duration", async () => {
       const user = await selectD4();
 
+      // 180 → 240 (4h 0m)
       await user.click(screen.getByRole("button", { name: "停留時長 烏菲茲美術館" }));
-      const input = screen.getByLabelText("停留時長 烏菲茲美術館");
-      await user.clear(input);
-      await user.type(input, "240");
+      const hInput = screen.getByLabelText("停留時長 烏菲茲美術館 小時");
+      const mInput = screen.getByLabelText("停留時長 烏菲茲美術館 分鐘");
+      await user.clear(hInput); await user.type(hInput, "4");
+      await user.clear(mInput); await user.type(mInput, "0");
       await user.keyboard("{Enter}");
 
       const badges = screen.getAllByTestId("delta-badge");
@@ -107,11 +111,12 @@ describe("E-6: cascade delta badges", () => {
     it("should clear all delta badges when switching to a different day", async () => {
       const user = await selectD4();
 
-      // Trigger some deltas in D4
+      // Trigger some deltas in D4 — 180 → 60 (1h 0m)
       await user.click(screen.getByRole("button", { name: "停留時長 烏菲茲美術館" }));
-      const input = screen.getByLabelText("停留時長 烏菲茲美術館");
-      await user.clear(input);
-      await user.type(input, "60");
+      const hInput = screen.getByLabelText("停留時長 烏菲茲美術館 小時");
+      const mInput = screen.getByLabelText("停留時長 烏菲茲美術館 分鐘");
+      await user.clear(hInput); await user.type(hInput, "1");
+      await user.clear(mInput); await user.type(mInput, "0");
       await user.keyboard("{Enter}");
 
       // Verify badges are there first
@@ -137,10 +142,12 @@ describe("E-6: cascade delta badges", () => {
       // Switch to lock mode
       await user.click(screen.getByRole("button", { name: "鎖定時間" }));
 
+      // 180 → 60 (1h 0m)
       await user.click(screen.getByRole("button", { name: "停留時長 烏菲茲美術館" }));
-      const input = screen.getByLabelText("停留時長 烏菲茲美術館");
-      await user.clear(input);
-      await user.type(input, "60");
+      const hInput = screen.getByLabelText("停留時長 烏菲茲美術館 小時");
+      const mInput = screen.getByLabelText("停留時長 烏菲茲美術館 分鐘");
+      await user.clear(hInput); await user.type(hInput, "1");
+      await user.clear(mInput); await user.type(mInput, "0");
       await user.keyboard("{Enter}");
 
       expect(screen.queryAllByTestId("delta-badge").length).toBe(0);

@@ -59,6 +59,9 @@ export default function App() {
   const [spotFormErr, setSpotFormErr] = useState("");
   const [spotModalType, setSpotModalType] = useState<"spot" | "transit">("spot");
 
+  //改動 4: editing transit id (re-uses transit modal for edits)
+  const [editingTransitId, setEditingTransitId] = useState<string | null>(null);
+
   // T-1: transit modal state
   const [transitModalOpen, setTransitModalOpen] = useState(false);
   const [transitFormName, setTransitFormName] = useState("");
@@ -87,6 +90,10 @@ export default function App() {
   // E-4: inline time / duration editing
   const [editingTimeSpotId, setEditingTimeSpotId] = useState<string | null>(null);
   const [editingDurSpotId, setEditingDurSpotId] = useState<string | null>(null);
+  const [editingDurH, setEditingDurH] = useState(0);
+  const [editingDurM, setEditingDurM] = useState(0);
+  // 改動 3: inline transit-time (tr) editing
+  const [editingTrSpotId, setEditingTrSpotId] = useState<string | null>(null);
 
   // E-6: cascade delta badges
   const [spotDeltas, setSpotDeltas] = useState<Record<string, number>>({});
@@ -228,6 +235,18 @@ export default function App() {
   };
 
   const openEditSpot = (spot: Spot) => {
+    // 改動 4: transit (non-arrival) → open transit modal with pre-filled values
+    if (spot.type === "transit" && !spot.isArrival) {
+      setEditingTransitId(spot.id);
+      setTransitFormName(spot.nm);
+      setTransitFormTime(fmt(spot.t));
+      setTransitFormHours(Math.floor(spot.d / 60));
+      setTransitFormMins(spot.d % 60);
+      setTransitFormTzOffset(String(spot.tzOffset ?? 0));
+      setTransitFormDep(""); setTransitFormDest("");
+      setTransitModalOpen(true);
+      return;
+    }
     setSpotModalType(spot.type === "transit" ? "transit" : "spot");
     setEditingSpotId(spot.id); setSpotFormName(spot.nm); setSpotFormErr(""); setSpotModalOpen(true);
   };
@@ -314,11 +333,53 @@ export default function App() {
     setTransitModalOpen(false); setTransitFormName(""); setTransitFormErr("");
     setTransitFormTime("09:00"); setTransitFormHours(1); setTransitFormMins(0);
     setTransitFormTzOffset("0"); setTransitFormDep(""); setTransitFormDest("");
+    setEditingTransitId(null);
   };
 
   const handleSaveTransit = () => {
     if (!transitFormName.trim()) { setTransitFormErr(t.transitNameRequired); return; }
     const name = transitFormName.trim();
+
+    // 改動 4: edit existing transit
+    if (editingTransitId !== null) {
+      const em = transitFormTime.match(/^(\d{1,2}):(\d{2})$/);
+      const depT = em ? parseInt(em[1]) * 60 + parseInt(em[2]) : 540;
+      const totalDur = transitFormHours * 60 + transitFormMins;
+      const tz = parseInt(transitFormTzOffset) || 0;
+      const corrected = depT + totalDur + tz * 60;
+
+      setDays((prev) => prev.map((d) => {
+        const spots = getSpotsForDay(d);
+
+        // Update linked arrival card (may be on a different day)
+        const hasLinkedArrival = spots.some((s) => s.isArrival && s.linkedSpotId === editingTransitId);
+        if (hasLinkedArrival) {
+          const updated = spots.map((s) =>
+            (s.isArrival && s.linkedSpotId === editingTransitId && corrected >= 1440)
+              ? { ...s, nm: name, t: corrected - 1440 }
+              : s
+          );
+          return { ...d, sp: updated };
+        }
+
+        // Update departure card in its day
+        if (!spots.some((s) => s.id === editingTransitId)) return d;
+        const updated = spots.map((s) => {
+          if (s.id !== editingTransitId) return s;
+          const base: Spot = { ...s, nm: name, t: depT, d: totalDur || 60 };
+          if (tz !== 0) base.tzOffset = tz; else delete base.tzOffset;
+          if (s.nextDayArrival !== undefined && corrected >= 1440)
+            return { ...base, nextDayArrival: corrected - 1440 };
+          return base;
+        });
+        const upd: Day = d.st === "u" && d.vs && d.av !== undefined
+          ? { ...d, vs: d.vs.map((v, vi) => vi === d.av ? { ...v, sp: updated } : v) }
+          : { ...d, sp: updated };
+        return tMode === "auto" ? recalcDay(upd) : upd;
+      }));
+      closeTransitModal();
+      return;
+    }
 
     const m = transitFormTime.match(/^(\d{1,2}):(\d{2})$/);
     const depT = m ? parseInt(m[1]) * 60 + parseInt(m[2]) : 540;
@@ -468,6 +529,22 @@ export default function App() {
     }
     setDays(newDays);
     setEditingDurSpotId(null);
+  };
+
+  // 改動 3: update transit time (tr) between spots
+  const updateSpotTr = (dayId: number, spotId: string, val: string) => {
+    const newTr = parseInt(val);
+    if (isNaN(newTr) || newTr < 0) { setEditingTrSpotId(null); return; }
+    setDays((prev) => prev.map((d) => {
+      if (d.id !== dayId) return d;
+      const spots = getSpotsForDay(d);
+      const updated = spots.map((s) => s.id === spotId ? { ...s, tr: newTr } : s);
+      const upd: Day = d.st === "u" && d.vs && d.av !== undefined
+        ? { ...d, vs: d.vs.map((v, vi) => vi === d.av ? { ...v, sp: updated } : v) }
+        : { ...d, sp: updated };
+      return tMode === "auto" ? recalcDay(upd) : upd;
+    }));
+    setEditingTrSpotId(null);
   };
 
   // ── C-1 ~ C-4: Conflict resolution handlers ─────────────────────
@@ -757,15 +834,48 @@ export default function App() {
                 const durText = (s.type === "transit" && s.d >= 60)
                   ? `${Math.floor(s.d / 60)}h${s.d % 60 > 0 ? ` ${s.d % 60}m` : ""}`
                   : `${s.d} ${t.min}`;
+                // 改動 1: compute start–end time range for time button display
+                const endT = s.t + s.d;
+                const timeRangeText = endT >= 1440
+                  ? `${fmt(s.t)} – ${t.nextDayBadge} ${fmt(endT - 1440)}`
+                  : `${fmt(s.t)} – ${fmt(endT)}`;
                 const durEl = (bg: string, color: string, borderColor: string) => editingDurSpotId === s.id
-                  ? <input type="number" defaultValue={s.d} aria-label={`${t.durationLabel} ${s.nm}`} min={5} autoFocus onKeyDown={(e) => { if (e.key === "Enter") updateSpotDuration(dd.id, s.id, e.currentTarget.value); if (e.key === "Escape") setEditingDurSpotId(null); }} style={{ width: 50, fontSize: 11, border: `1px solid ${borderColor}`, borderRadius: 6, padding: "1px 4px", outline: "none" }} />
-                  : <button onClick={() => setEditingDurSpotId(s.id)} aria-label={`${t.durationLabel} ${s.nm}`} style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color, background: bg, border: "none", borderRadius: 20, padding: "2px 8px", cursor: "pointer" }}><span style={{ fontSize: 14 }}>⏱</span>{durText}</button>;
+                  ? <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                      <input type="number"
+                        aria-label={`${t.durationLabel} ${s.nm} ${t.transitHours}`}
+                        value={editingDurH} min={0} autoFocus
+                        onChange={(e) => setEditingDurH(Math.max(0, parseInt(e.target.value) || 0))}
+                        onKeyDown={(e) => { if (e.key === "Enter") updateSpotDuration(dd.id, s.id, String(editingDurH * 60 + editingDurM)); if (e.key === "Escape") setEditingDurSpotId(null); }}
+                        style={{ width: 36, fontSize: 11, border: `1px solid ${borderColor}`, borderRadius: 6, padding: "1px 4px", outline: "none" }} />
+                      <span style={{ fontSize: 11, color }}>{t.transitHours}</span>
+                      <input type="number"
+                        aria-label={`${t.durationLabel} ${s.nm} ${t.min}`}
+                        value={editingDurM} min={0} max={59}
+                        onChange={(e) => setEditingDurM(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
+                        onKeyDown={(e) => { if (e.key === "Enter") updateSpotDuration(dd.id, s.id, String(editingDurH * 60 + editingDurM)); if (e.key === "Escape") setEditingDurSpotId(null); }}
+                        style={{ width: 36, fontSize: 11, border: `1px solid ${borderColor}`, borderRadius: 6, padding: "1px 4px", outline: "none" }} />
+                      <span style={{ fontSize: 11, color }}>{t.min}</span>
+                    </span>
+                  : <button onClick={() => { setEditingDurSpotId(s.id); setEditingDurH(Math.floor(s.d / 60)); setEditingDurM(s.d % 60); }} aria-label={`${t.durationLabel} ${s.nm}`} style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color, background: bg, border: "none", borderRadius: 20, padding: "2px 8px", cursor: "pointer" }}><span style={{ fontSize: 14 }}>⏱</span>{durText}</button>;
 
                 return (
                   <div key={s.id}>
                     {i > 0 && (sp[i - 1].tr || 0) > 0 && (
                       <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 0 2px 26px", fontSize: 9, color: C.muted }}>
-                        &#9201; {sp[i - 1].tr}{t.min}
+                        ↓{" "}
+                        {editingTrSpotId === sp[i - 1].id
+                          ? <><input type="number" defaultValue={sp[i - 1].tr} min={0} autoFocus
+                              aria-label={`${t.transitTimeLabel} ${sp[i - 1].nm}`}
+                              style={{ width: 36, fontSize: 9, border: `1px solid ${C.accent}`, borderRadius: 4, padding: "0 2px", outline: "none" }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") updateSpotTr(dd.id, sp[i - 1].id, e.currentTarget.value);
+                                if (e.key === "Escape") setEditingTrSpotId(null);
+                              }} />{" "}{t.min}</>
+                          : <button onClick={() => setEditingTrSpotId(sp[i - 1].id)}
+                              style={{ fontSize: 9, background: "none", border: "none", color: C.muted, cursor: "pointer", padding: 0 }}>
+                              {sp[i - 1].tr}{t.min}
+                            </button>
+                        }
                       </div>
                     )}
                     <div draggable onDragStart={() => setDragI(i)} onDragOver={(e) => e.preventDefault()} onDrop={() => { if (dragI !== null && dragI !== i) moveSpot(dd.id, dragI, i); setDragI(null); }} onDragEnd={() => setDragI(null)}
@@ -791,7 +901,7 @@ export default function App() {
                             <span style={{ flex: 1 }} />
                             {editingTimeSpotId === s.id
                               ? <input type="text" defaultValue={fmt(s.t)} aria-label={`${t.startTimeLabel} ${s.nm}`} autoFocus onKeyDown={(e) => { if (e.key === "Enter") updateSpotTime(dd.id, s.id, e.currentTarget.value); if (e.key === "Escape") setEditingTimeSpotId(null); }} style={{ width: 44, fontSize: 11, border: `1px solid ${C.accent}`, borderRadius: 4, padding: "1px 4px", outline: "none" }} />
-                              : <button onClick={() => setEditingTimeSpotId(s.id)} aria-label={`${t.startTimeLabel} ${s.nm}`} style={{ fontSize: 11, color: C.muted, background: "none", border: "none", cursor: "pointer", padding: "1px 4px" }}>{fmt(s.t)}</button>
+                              : <button onClick={() => setEditingTimeSpotId(s.id)} aria-label={`${t.startTimeLabel} ${s.nm}`} style={{ fontSize: 11, color: C.muted, background: "none", border: "none", cursor: "pointer", padding: "1px 4px" }}>{timeRangeText}</button>
                             }
                             <button aria-label={`${t.editSpotLabel} ${s.nm}`} onClick={() => openEditSpot(s)} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", padding: "0 2px", display: "flex", alignItems: "center" }}>{pencilSvg}</button>
                             <button aria-label={`${t.deleteSpotLabel} ${s.nm}`} onClick={() => deleteSpot(s.id)} style={{ fontSize: 13, background: "none", border: "none", color: C.muted, cursor: "pointer", padding: "0 2px" }}>×</button>
@@ -844,7 +954,7 @@ export default function App() {
                               <span style={{ flex: 1 }} />
                               {editingTimeSpotId === s.id
                                 ? <input type="text" defaultValue={fmt(s.t)} aria-label={`${t.startTimeLabel} ${s.nm}`} autoFocus onKeyDown={(e) => { if (e.key === "Enter") updateSpotTime(dd.id, s.id, e.currentTarget.value); if (e.key === "Escape") setEditingTimeSpotId(null); }} style={{ width: 44, fontSize: 11, border: `1px solid #6366f1`, borderRadius: 4, padding: "1px 4px", outline: "none" }} />
-                                : <button onClick={() => setEditingTimeSpotId(s.id)} aria-label={`${t.startTimeLabel} ${s.nm}`} style={{ fontSize: 11, color: "#6366f1", background: "none", border: "none", cursor: "pointer", padding: "1px 4px" }}>{fmt(s.t)}</button>
+                                : <button onClick={() => setEditingTimeSpotId(s.id)} aria-label={`${t.startTimeLabel} ${s.nm}`} style={{ fontSize: 11, color: "#6366f1", background: "none", border: "none", cursor: "pointer", padding: "1px 4px" }}>{timeRangeText}</button>
                               }
                               <button aria-label={`${t.editSpotLabel} ${s.nm}`} onClick={() => openEditSpot(s)} style={{ background: "none", border: "none", color: "#3a4a7a", cursor: "pointer", padding: "0 2px", display: "flex", alignItems: "center" }}>{pencilSvg}</button>
                               <button aria-label={`${t.deleteSpotLabel} ${s.nm}`} onClick={() => deleteSpot(s.id)} style={{ fontSize: 13, background: "none", border: "none", color: "#3a4a7a", cursor: "pointer", padding: "0 2px" }}>×</button>
@@ -866,7 +976,7 @@ export default function App() {
                             <span style={{ flex: 1 }} />
                             {editingTimeSpotId === s.id
                               ? <input type="text" defaultValue={fmt(s.t)} aria-label={`${t.startTimeLabel} ${s.nm}`} autoFocus onKeyDown={(e) => { if (e.key === "Enter") updateSpotTime(dd.id, s.id, e.currentTarget.value); if (e.key === "Escape") setEditingTimeSpotId(null); }} style={{ width: 44, fontSize: 11, border: `1px solid ${C.accent}`, borderRadius: 4, padding: "1px 4px", outline: "none" }} />
-                              : <button onClick={() => setEditingTimeSpotId(s.id)} aria-label={`${t.startTimeLabel} ${s.nm}`} style={{ fontSize: 11, color: C.muted, background: "none", border: "none", cursor: "pointer", padding: "1px 4px" }}>{fmt(s.t)}</button>
+                              : <button onClick={() => setEditingTimeSpotId(s.id)} aria-label={`${t.startTimeLabel} ${s.nm}`} style={{ fontSize: 11, color: C.muted, background: "none", border: "none", cursor: "pointer", padding: "1px 4px" }}>{timeRangeText}</button>
                             }
                             <button aria-label={`${t.editSpotLabel} ${s.nm}`} onClick={() => openEditSpot(s)} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", padding: "0 2px", display: "flex", alignItems: "center" }}>{pencilSvg}</button>
                             <button aria-label={`${t.deleteSpotLabel} ${s.nm}`} onClick={() => deleteSpot(s.id)} style={{ fontSize: 13, background: "none", border: "none", color: C.muted, cursor: "pointer", padding: "0 2px" }}>×</button>
@@ -1020,10 +1130,10 @@ export default function App() {
         const fmtUtc = (n: number) => `UTC${n >= 0 ? "+" : ""}${n}`;
         return (
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={closeTransitModal}>
-            <div role="dialog" aria-modal="true" aria-label={t.addTransitModalTitle}
+            <div role="dialog" aria-modal="true" aria-label={editingTransitId ? t.editTransitModalTitle : t.addTransitModalTitle}
               onClick={(e) => e.stopPropagation()}
               style={{ background: C.card, borderRadius: 20, padding: 28, width: 400, maxWidth: "90vw" }}>
-              <h3 style={{ fontSize: 17, fontWeight: 700, color: C.ink, margin: "0 0 16px" }}>{t.addTransitModalTitle}</h3>
+              <h3 style={{ fontSize: 17, fontWeight: 700, color: C.ink, margin: "0 0 16px" }}>{editingTransitId ? t.editTransitModalTitle : t.addTransitModalTitle}</h3>
               {/* Name */}
               <div style={{ marginBottom: 14 }}>
                 <label htmlFor="transit-name-input" style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "block", marginBottom: 5 }}>{t.transitNameLabel}</label>

@@ -76,7 +76,8 @@ describe("E-4: 直接修改景點時間與停留時長", () => {
 
       await user.click(screen.getByRole("button", { name: "停留時長 烏菲茲美術館" }));
 
-      expect(screen.getByLabelText("停留時長 烏菲茲美術館")).toBeInTheDocument();
+      expect(screen.getByLabelText("停留時長 烏菲茲美術館 小時")).toBeInTheDocument();
+      expect(screen.getByLabelText("停留時長 烏菲茲美術館 分鐘")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "停留時長 烏菲茲美術館" })).not.toBeInTheDocument();
     });
   });
@@ -95,10 +96,12 @@ describe("E-4: 直接修改景點時間與停留時長", () => {
       // Verify initial state of downstream spot
       expect(screen.getByRole("button", { name: "開始時間 領主廣場/舊宮/野豬噴泉" })).toHaveTextContent("12:10");
 
+      // 烏菲茲 d=180 (3h 0m) → change to 1h 0m = 60min
       await user.click(screen.getByRole("button", { name: "停留時長 烏菲茲美術館" }));
-      const input = screen.getByLabelText("停留時長 烏菲茲美術館");
-      await user.clear(input);
-      await user.type(input, "60");
+      const hInput = screen.getByLabelText("停留時長 烏菲茲美術館 小時");
+      const mInput = screen.getByLabelText("停留時長 烏菲茲美術館 分鐘");
+      await user.clear(hInput); await user.type(hInput, "1");
+      await user.clear(mInput); await user.type(mInput, "0");
       await user.keyboard("{Enter}");
 
       expect(screen.getByRole("button", { name: "開始時間 領主廣場/舊宮/野豬噴泉" })).toHaveTextContent("10:10");

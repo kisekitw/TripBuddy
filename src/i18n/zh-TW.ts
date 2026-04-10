@@ -112,6 +112,7 @@ export const zhTW = {
   transitDestLabel: "目的地機場代碼",
   transitUnknownCode: "無法辨識，請手動填寫時區差",
   transitTzAutoDetected: "自動推算",
+  transitTimeLabel: "交通時間",
 
   // C-1 ~ C-5: 衝突解決
   conflictShortenDur: "縮短時長",
