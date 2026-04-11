@@ -114,6 +114,13 @@ export const zhTW = {
   transitTzAutoDetected: "自動推算",
   transitTimeLabel: "交通時間",
 
+  // Alt group
+  spotIsAltLabel: "設為替代方案",
+  convertToAltHint: "將此景點轉為替代方案群組，可新增多個選項比較",
+  convertToAltBtn: "轉為替代方案 →",
+  convertToSpotHint: "取消替代方案群組，保留目前選取的選項作為一般景點",
+  convertToSpotBtn: "← 轉回一般景點",
+
   // C-1 ~ C-5: 衝突解決
   conflictShortenDur: "縮短時長",
   conflictMoveDay: "移至他日",

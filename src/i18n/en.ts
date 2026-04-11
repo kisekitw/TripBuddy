@@ -105,6 +105,13 @@ export const en = {
   transitTzAutoDetected: "Auto-detected",
   transitTimeLabel: "Transit time",
 
+  // Alt group
+  spotIsAltLabel: "Set as alternative group",
+  convertToAltHint: "Convert to an alternative group to compare options",
+  convertToAltBtn: "Convert to alternative group →",
+  convertToSpotHint: "Discard the alternative group and keep the currently selected option as a regular spot",
+  convertToSpotBtn: "← Convert back to regular spot",
+
   // C-1 ~ C-5: Conflict resolution
   conflictShortenDur: "Shorten duration",
   conflictMoveDay: "Move to another day",

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import type { Locale } from "./i18n";
-import type { Day, Trip, User, Spot } from "./types";
+import type { Day, Trip, User, Spot, AltOption } from "./types";
 import { getTranslations } from "./i18n";
 import { colors as C, dayColors as DC } from "./utils/colors";
 import { fmt, getSpotsForDay, getConflictLevel, recalcDay, autoAdjustDay, lookupAirport } from "./utils";
@@ -92,9 +92,18 @@ export default function App() {
   const [spotFormName, setSpotFormName] = useState("");
   const [spotFormErr, setSpotFormErr] = useState("");
   const [spotModalType, setSpotModalType] = useState<"spot" | "transit">("spot");
+  const [spotFormIsAlt, setSpotFormIsAlt] = useState(false);
 
   //改動 4: editing transit id (re-uses transit modal for edits)
   const [editingTransitId, setEditingTransitId] = useState<string | null>(null);
+
+  // Alt option modal state
+  const [altModalOpen, setAltModalOpen] = useState(false);
+  const [altModalSpotId, setAltModalSpotId] = useState<string | null>(null);
+  const [altModalIndex, setAltModalIndex] = useState<number | null>(null); // null = add new
+  const [altFormNm, setAltFormNm] = useState("");
+  const [altFormD, setAltFormD] = useState("");
+  const [altFormTr, setAltFormTr] = useState("");
 
   // T-1: transit modal state
   const [transitModalOpen, setTransitModalOpen] = useState(false);
@@ -275,6 +284,105 @@ export default function App() {
     }));
   };
 
+  const convertAltToSpot = (spotId: string) => {
+    setDays((prev) => prev.map((day) => {
+      if (day.id !== selDay) return day;
+      const arr = getSpotsForDay(day).map((s) => {
+        if (s.id !== spotId || !s.isA) return s;
+        const active = s.ao && s.ao[s.si ?? 0] ? s.ao[s.si ?? 0] : null;
+        const { isA: _isA, ao: _ao, si: _si, ...rest } = s;
+        return active ? { ...rest, nm: active.nm, d: active.d, tr: active.tr } : rest;
+      });
+      const upd: Day = day.st === "u" && day.vs && day.av !== undefined
+        ? { ...day, vs: day.vs.map((v, i) => i === day.av ? { ...v, sp: arr } : v) }
+        : { ...day, sp: arr };
+      return tMode === "auto" ? recalcDay(upd) : upd;
+    }));
+    closeSpotModal();
+  };
+
+  const convertSpotToAlt = (spotId: string) => {
+    setDays((prev) => prev.map((day) => {
+      if (day.id !== selDay) return day;
+      const arr = getSpotsForDay(day).map((s) => {
+        if (s.id !== spotId || s.isA) return s;
+        const firstOption: AltOption = { id: `ao-${Date.now()}`, nm: s.nm, d: s.d, tr: s.tr };
+        return { ...s, isA: true, ao: [firstOption], si: 0 };
+      });
+      const upd: Day = day.st === "u" && day.vs && day.av !== undefined
+        ? { ...day, vs: day.vs.map((v, i) => i === day.av ? { ...v, sp: arr } : v) }
+        : { ...day, sp: arr };
+      return tMode === "auto" ? recalcDay(upd) : upd;
+    }));
+    closeSpotModal();
+  };
+
+  const openAddAlt = (spotId: string) => {
+    setAltModalSpotId(spotId);
+    setAltModalIndex(null);
+    setAltFormNm("");
+    setAltFormD("60");
+    setAltFormTr("10");
+    setAltModalOpen(true);
+  };
+
+  const openEditAlt = (spotId: string, ai: number) => {
+    if (!dd) return;
+    const opt = getSpotsForDay(dd).find(s => s.id === spotId)?.ao?.[ai];
+    if (!opt) return;
+    setAltModalSpotId(spotId);
+    setAltModalIndex(ai);
+    setAltFormNm(opt.nm);
+    setAltFormD(String(opt.d));
+    setAltFormTr(String(opt.tr));
+    setAltModalOpen(true);
+  };
+
+  const saveAlt = () => {
+    if (!altModalSpotId || !dd) return;
+    const nm = altFormNm.trim();
+    if (!nm) return;
+    const d = parseInt(altFormD) || 60;
+    const tr = parseInt(altFormTr) || 0;
+    setDays(prev => prev.map(day => {
+      if (day.id !== dd.id) return day;
+      const arr = getSpotsForDay(day).map(s => {
+        if (s.id !== altModalSpotId || !s.isA || !s.ao) return s;
+        if (altModalIndex === null) {
+          const newOpt: AltOption = { id: `ao${Date.now()}`, nm, d, tr };
+          return { ...s, ao: [...s.ao, newOpt] };
+        }
+        const newAo = s.ao.map((o, i) => i === altModalIndex ? { ...o, nm, d, tr } : o);
+        const isSel = altModalIndex === (s.si ?? 0);
+        return isSel ? { ...s, ao: newAo, nm, d, tr } : { ...s, ao: newAo };
+      });
+      const upd: Day = day.st === "u" && day.vs && day.av !== undefined
+        ? { ...day, vs: day.vs.map((v, i) => i === day.av ? { ...v, sp: arr } : v) }
+        : { ...day, sp: arr };
+      return tMode === "auto" ? recalcDay(upd) : upd;
+    }));
+    setAltModalOpen(false);
+  };
+
+  const deleteAlt = (spotId: string, ai: number) => {
+    if (!dd) return;
+    setDays(prev => prev.map(day => {
+      if (day.id !== dd.id) return day;
+      const arr = getSpotsForDay(day).map(s => {
+        if (s.id !== spotId || !s.isA || !s.ao || s.ao.length <= 1) return s;
+        const newAo = s.ao.filter((_, i) => i !== ai);
+        const newSi = Math.min(s.si ?? 0, newAo.length - 1);
+        const sel = newAo[newSi];
+        return { ...s, ao: newAo, si: newSi, nm: sel.nm, d: sel.d, tr: sel.tr };
+      });
+      const upd: Day = day.st === "u" && day.vs && day.av !== undefined
+        ? { ...day, vs: day.vs.map((v, i) => i === day.av ? { ...v, sp: arr } : v) }
+        : { ...day, sp: arr };
+      return tMode === "auto" ? recalcDay(upd) : upd;
+    }));
+    setAltModalOpen(false);
+  };
+
   const switchVar = (dayId: number, vi: number) => {
     setDays((prev) => prev.map((d) => d.id === dayId ? { ...d, av: vi } : d));
   };
@@ -282,7 +390,7 @@ export default function App() {
   // ── E-3: Spot CRUD ───────────────────────────────────────────────
 
   const openAddSpot = () => {
-    setSpotModalType("spot"); setEditingSpotId(null); setSpotFormName(""); setSpotFormErr(""); setSpotModalOpen(true);
+    setSpotModalType("spot"); setEditingSpotId(null); setSpotFormName(""); setSpotFormErr(""); setSpotFormIsAlt(false); setSpotModalOpen(true);
   };
 
   const openEditSpot = (spot: Spot) => {
@@ -303,7 +411,7 @@ export default function App() {
   };
 
   const closeSpotModal = () => {
-    setSpotModalOpen(false); setSpotFormName(""); setSpotFormErr(""); setEditingSpotId(null);
+    setSpotModalOpen(false); setSpotFormName(""); setSpotFormErr(""); setEditingSpotId(null); setSpotFormIsAlt(false);
   };
 
   const handleSaveSpot = () => {
@@ -317,7 +425,12 @@ export default function App() {
       } else {
         const last = spots[spots.length - 1];
         const newT = last ? last.t + last.d + (last.tr || 0) : 540;
-        spots = [...spots, { id: `sp-${Date.now()}`, nm: name, t: newT, d: 60, tr: 15, la: 0, ln: 0, type: "spot" } as Spot];
+        if (spotFormIsAlt) {
+          const firstOption: AltOption = { id: `ao-${Date.now()}`, nm: name, d: 60, tr: 15 };
+          spots = [...spots, { id: `sp-${Date.now()}`, nm: name, t: newT, d: 60, tr: 15, la: 0, ln: 0, type: "spot", isA: true, ao: [firstOption], si: 0 } as Spot];
+        } else {
+          spots = [...spots, { id: `sp-${Date.now()}`, nm: name, t: newT, d: 60, tr: 15, la: 0, ln: 0, type: "spot" } as Spot];
+        }
       }
       const upd: Day = d.st === "u" && d.vs && d.av !== undefined
         ? { ...d, vs: d.vs.map((v, i) => i === d.av ? { ...v, sp: spots } : v) }
@@ -974,10 +1087,14 @@ export default function App() {
                         /* ── Alternative slot card ── */
                         <div style={{ flex: 1, border: `1.5px dashed ${C.infoBorder}`, borderRadius: 10, padding: "8px 10px", background: C.card }}>
                           <div style={{ fontSize: 9, color: C.infoText, fontWeight: 500, marginBottom: 4 }}>{t.alternatives}</div>
-                          <div style={{ display: "flex", gap: 2, marginBottom: 6, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", gap: 2, marginBottom: 6, flexWrap: "wrap", alignItems: "center" }}>
                             {s.ao.map((o, ai) => (
-                              <button key={ai} onClick={() => switchAlt(dd.id, s.id, ai)} style={{ ...pill, fontSize: 9, padding: "2px 6px", background: s.si === ai ? C.infoBg : "transparent", color: s.si === ai ? C.infoText : C.muted, borderColor: s.si === ai ? C.infoBorder : C.light }}>{o.nm.length > 14 ? o.nm.slice(0, 14) + ".." : o.nm}</button>
+                              <div key={ai} style={{ display: "inline-flex", alignItems: "center" }}>
+                                <button onClick={() => switchAlt(dd.id, s.id, ai)} style={{ ...pill, fontSize: 9, padding: "2px 6px", background: s.si === ai ? C.infoBg : "transparent", color: s.si === ai ? C.infoText : C.muted, borderColor: s.si === ai ? C.infoBorder : C.light }}>{o.nm.length > 14 ? o.nm.slice(0, 14) + ".." : o.nm}</button>
+                                <button onClick={() => openEditAlt(s.id, ai)} style={{ background: "none", border: "none", cursor: "pointer", padding: "0 1px", color: C.muted, display: "flex", alignItems: "center" }}>{pencilSvg}</button>
+                              </div>
                             ))}
+                            <button onClick={() => openAddAlt(s.id)} style={{ ...pill, fontSize: 9, padding: "2px 8px", color: C.accent, borderColor: C.accent }}>+</button>
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                             <span style={{ width: 8, height: 8, borderRadius: 4, background: C.infoBorder, flexShrink: 0 }} />
@@ -1192,12 +1309,44 @@ export default function App() {
                 style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${spotFormErr ? C.errBorder : C.light}`, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
               {spotFormErr && <p style={{ fontSize: 11, color: C.errText, margin: "4px 0 0" }}>{spotFormErr}</p>}
             </div>
+            {!editingSpotId && spotModalType === "spot" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+                <input type="checkbox" id="spot-is-alt-toggle" checked={spotFormIsAlt}
+                  onChange={(e) => setSpotFormIsAlt(e.target.checked)}
+                  style={{ cursor: "pointer", width: 14, height: 14, accentColor: C.accent }} />
+                <label htmlFor="spot-is-alt-toggle" style={{ fontSize: 12, color: C.muted, cursor: "pointer", userSelect: "none" }}>
+                  {t.spotIsAltLabel}
+                </label>
+              </div>
+            )}
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={closeSpotModal} style={{ flex: 1, padding: "11px 0", borderRadius: 100, border: `1px solid ${C.light}`, background: "transparent", color: C.muted, fontSize: 13, cursor: "pointer" }}>{t.spotCancelBtn}</button>
               <button onClick={handleSaveSpot} style={{ flex: 1, padding: "11px 0", borderRadius: 100, border: "none", background: C.accent, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
                 {editingSpotId ? t.editSpotConfirmBtn : t.addSpotConfirmBtn}
               </button>
             </div>
+            {editingSpotId && (() => {
+              const editingSpot = dd ? getSpotsForDay(dd).find((s) => s.id === editingSpotId) : null;
+              if (!editingSpot) return null;
+              if (editingSpot.isA) {
+                return (
+                  <div style={{ borderTop: `1px solid ${C.light}`, paddingTop: 14, marginTop: 14 }}>
+                    <p style={{ fontSize: 11, color: C.muted, marginBottom: 8 }}>{t.convertToSpotHint}</p>
+                    <button onClick={() => convertAltToSpot(editingSpotId)} style={{ ...pill, fontSize: 11, color: C.muted, borderColor: C.light }}>
+                      {t.convertToSpotBtn}
+                    </button>
+                  </div>
+                );
+              }
+              return (
+                <div style={{ borderTop: `1px solid ${C.light}`, paddingTop: 14, marginTop: 14 }}>
+                  <p style={{ fontSize: 11, color: C.muted, marginBottom: 8 }}>{t.convertToAltHint}</p>
+                  <button onClick={() => convertSpotToAlt(editingSpotId)} style={{ ...pill, fontSize: 11, color: C.accent, borderColor: C.accent }}>
+                    {t.convertToAltBtn}
+                  </button>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -1345,6 +1494,39 @@ export default function App() {
                 style={{ ...pill, width: "100%", justifyContent: "center" }}>
                 {t.conflictWizardClose}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Alt option add/edit modal */}
+      {altModalOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setAltModalOpen(false)}>
+          <div style={{ background: C.card, borderRadius: 16, padding: 24, width: 320, maxWidth: "90vw", boxShadow: "0 8px 32px rgba(0,0,0,.18)" }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: C.ink, margin: "0 0 16px" }}>{altModalIndex === null ? "新增替代方案" : "編輯替代方案"}</h3>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "block", marginBottom: 3 }}>名稱</label>
+            <input value={altFormNm} onChange={e => setAltFormNm(e.target.value)} placeholder="替代方案名稱" autoFocus
+              style={{ width: "100%", padding: "8px 10px", borderRadius: 10, border: `1px solid ${C.light}`, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 12 }} />
+            <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "block", marginBottom: 3 }}>停留時長（分鐘）</label>
+                <input type="number" value={altFormD} onChange={e => setAltFormD(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 10, border: `1px solid ${C.light}`, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "block", marginBottom: 3 }}>前往交通（分鐘）</label>
+                <input type="number" value={altFormTr} onChange={e => setAltFormTr(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 10, border: `1px solid ${C.light}`, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {altModalIndex !== null && dd && (getSpotsForDay(dd).find(s => s.id === altModalSpotId)?.ao?.length ?? 0) > 1 && (
+                <button onClick={() => altModalSpotId !== null && deleteAlt(altModalSpotId, altModalIndex)}
+                  style={{ padding: "11px 14px", borderRadius: 100, border: "none", background: "#fee2e2", color: "#dc2626", fontSize: 13, cursor: "pointer" }}>✕</button>
+              )}
+              <button onClick={() => setAltModalOpen(false)} style={{ flex: 1, padding: "11px 0", borderRadius: 100, border: `1px solid ${C.light}`, background: "transparent", color: C.muted, fontSize: 13, cursor: "pointer" }}>取消</button>
+              <button onClick={saveAlt} disabled={!altFormNm.trim()}
+                style={{ flex: 1, padding: "11px 0", borderRadius: 100, border: "none", background: altFormNm.trim() ? C.accent : C.light, color: "#fff", fontSize: 13, fontWeight: 500, cursor: altFormNm.trim() ? "pointer" : "default" }}>儲存</button>
             </div>
           </div>
         </div>
