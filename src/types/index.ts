@@ -20,6 +20,8 @@ export interface Spot {
   linkedSpotId?: string;     // links departure ↔ arrival cards
   // T-3: timezone-aware transit
   tzOffset?: number;         // destination UTC offset − departure UTC offset (e.g. Taipei→Dubai = -4)
+  dep?: string;              // departure IATA airport code
+  dest?: string;             // destination IATA airport code
 }
 
 export interface AltOption {

@@ -285,7 +285,7 @@ export default function App() {
       setTransitFormHours(Math.floor(spot.d / 60));
       setTransitFormMins(spot.d % 60);
       setTransitFormTzOffset(String(spot.tzOffset ?? 0));
-      setTransitFormDep(""); setTransitFormDest("");
+      setTransitFormDep(spot.dep ?? ""); setTransitFormDest(spot.dest ?? "");
       setTransitModalOpen(true);
       return;
     }
@@ -410,6 +410,8 @@ export default function App() {
           if (s.id !== editingTransitId) return s;
           const base: Spot = { ...s, nm: name, t: depT, d: totalDur || 60 };
           if (tz !== 0) base.tzOffset = tz; else delete base.tzOffset;
+          if (transitFormDep.trim()) base.dep = transitFormDep.trim().toUpperCase(); else delete base.dep;
+          if (transitFormDest.trim()) base.dest = transitFormDest.trim().toUpperCase(); else delete base.dest;
           if (s.nextDayArrival !== undefined && corrected >= 1440)
             return { ...base, nextDayArrival: corrected - 1440 };
           return base;
@@ -435,7 +437,12 @@ export default function App() {
       setDays((prev) => prev.map((d) => {
         if (d.id !== selDay) return d;
         const spots = getSpotsForDay(d);
-        const newSpot: Spot = { id: `tr-${Date.now()}`, nm: name, t: depT, d: totalDur || 60, tr: 0, la: 0, ln: 0, type: "transit" };
+        const newSpot: Spot = {
+          id: `tr-${Date.now()}`, nm: name, t: depT, d: totalDur || 60, tr: 0, la: 0, ln: 0, type: "transit",
+          ...(tz !== 0 ? { tzOffset: tz } : {}),
+          ...(transitFormDep.trim() ? { dep: transitFormDep.trim().toUpperCase() } : {}),
+          ...(transitFormDest.trim() ? { dest: transitFormDest.trim().toUpperCase() } : {}),
+        };
         const updated = [...spots, newSpot];
         const upd: Day = d.st === "u" && d.vs && d.av !== undefined
           ? { ...d, vs: d.vs.map((v, i) => i === d.av ? { ...v, sp: updated } : v) }
@@ -454,6 +461,8 @@ export default function App() {
         type: "transit", nextDayArrival: nextDayT,
         linkedSpotId: arrId, la: 0, ln: 0, tr: 0,
         ...(tz !== 0 ? { tzOffset: tz } : {}),
+        ...(transitFormDep.trim() ? { dep: transitFormDep.trim().toUpperCase() } : {}),
+        ...(transitFormDest.trim() ? { dest: transitFormDest.trim().toUpperCase() } : {}),
       };
       const arrivalSpot: Spot = {
         id: arrId, nm: name, t: nextDayT, d: 0,
@@ -902,7 +911,8 @@ export default function App() {
                   ? `${Math.floor(s.d / 60)}h${s.d % 60 > 0 ? ` ${s.d % 60}m` : ""}`
                   : `${s.d} ${t.min}`;
                 // 改動 1: compute start–end time range for time button display
-                const endT = s.t + s.d;
+                // For transit with timezone offset, end time = local arrival time at destination
+                const endT = s.t + s.d + (s.tzOffset ?? 0) * 60;
                 const timeRangeText = endT >= 1440
                   ? `${fmt(s.t)} – ${t.nextDayBadge} ${fmt(endT - 1440)}`
                   : `${fmt(s.t)} – ${fmt(endT)}`;
