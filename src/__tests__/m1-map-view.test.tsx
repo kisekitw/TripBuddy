@@ -23,8 +23,13 @@ vi.mock("react-leaflet", () => ({
     <div>{children}</div>
   ),
   TileLayer: () => null,
-  Marker: ({ children }: { children?: React.ReactNode }) => (
-    <div data-testid="map-marker">{children}</div>
+  Marker: ({ children, interactive, "aria-label": ariaLabel }: any) => (
+    <div
+      data-testid={interactive === false ? "map-transit-label" : "map-marker"}
+      aria-label={ariaLabel}
+    >
+      {children}
+    </div>
   ),
   Popup: ({ children }: { children?: React.ReactNode }) => (
     <div data-testid="map-popup">{children}</div>
@@ -124,7 +129,7 @@ describe("M-1: 互動式地圖底圖", () => {
     it("should render a polyline path when multiple spots exist", async () => {
       await selectD4();
 
-      expect(screen.getByTestId("map-polyline")).toBeInTheDocument();
+      expect(screen.getAllByTestId("map-polyline").length).toBeGreaterThanOrEqual(1);
     });
   });
 });

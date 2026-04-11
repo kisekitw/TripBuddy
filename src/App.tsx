@@ -4,6 +4,7 @@ import type { Day, Trip, User, Spot } from "./types";
 import { getTranslations } from "./i18n";
 import { colors as C, dayColors as DC } from "./utils/colors";
 import { fmt, getSpotsForDay, getConflictLevel, recalcDay, autoAdjustDay, lookupAirport } from "./utils";
+import { getDSTAdjustment } from "./data/airports";
 import { SAMPLE_TRIP, SAMPLE_DAYS } from "./data/sampleTrip";
 import { LangSwitcher } from "./components/LangSwitcher";
 import { MapView } from "./components/MapView";
@@ -116,8 +117,16 @@ export default function App() {
     const depInfo = lookupAirport(transitFormDep);
     const destInfo = lookupAirport(transitFormDest);
     if (depInfo && destInfo) {
-      setTransitFormTzOffset(String(destInfo.utc - depInfo.utc));
+      // Determine the transit date to apply DST correctly
+      const year = parseInt(trip.dates.match(/\d{4}/)?.[0] ?? String(new Date().getFullYear()));
+      const curDay = days.find(d => d.id === selDay);
+      const dtM = curDay?.dt.match(/^(\d{1,2})\/(\d{1,2})/);
+      const date = dtM ? new Date(year, parseInt(dtM[1]) - 1, parseInt(dtM[2])) : new Date();
+      const depEff = depInfo.utc + (depInfo.dst ? getDSTAdjustment(depInfo.dst, date) : 0);
+      const destEff = destInfo.utc + (destInfo.dst ? getDSTAdjustment(destInfo.dst, date) : 0);
+      setTransitFormTzOffset(String(destEff - depEff));
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transitFormDep, transitFormDest, transitModalOpen]);
 
   // E-4: inline time / duration editing
@@ -1150,7 +1159,7 @@ export default function App() {
               <span style={{ color: C.muted, fontSize: 12 }}>{t.selectDayMap}</span>
             </div>
           ) : (
-            <MapView day={dd} dayIndex={di} />
+            <MapView key={dd.id} day={dd} dayIndex={di} />
           )}
         </div>
       </div>
@@ -1205,6 +1214,13 @@ export default function App() {
         const depInfo = lookupAirport(transitFormDep);
         const destInfo = lookupAirport(transitFormDest);
         const fmtUtc = (n: number) => `UTC${n >= 0 ? "+" : ""}${n}`;
+        // DST-adjusted effective UTC for display
+        const _year = parseInt(trip.dates.match(/\d{4}/)?.[0] ?? String(new Date().getFullYear()));
+        const _curDay = days.find(d => d.id === selDay);
+        const _dtM = _curDay?.dt.match(/^(\d{1,2})\/(\d{1,2})/);
+        const _date = _dtM ? new Date(_year, parseInt(_dtM[1]) - 1, parseInt(_dtM[2])) : new Date();
+        const depEff = depInfo ? depInfo.utc + (depInfo.dst ? getDSTAdjustment(depInfo.dst, _date) : 0) : 0;
+        const destEff = destInfo ? destInfo.utc + (destInfo.dst ? getDSTAdjustment(destInfo.dst, _date) : 0) : 0;
         return (
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={closeTransitModal}>
             <div role="dialog" aria-modal="true" aria-label={editingTransitId ? t.editTransitModalTitle : t.addTransitModalTitle}
@@ -1226,7 +1242,7 @@ export default function App() {
                     onChange={(e) => setTransitFormDep(e.target.value)}
                     placeholder="TPE"
                     style={{ width: "100%", padding: "8px 10px", borderRadius: 10, border: `1px solid ${C.light}`, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-                  {depInfo && <p style={{ fontSize: 11, color: "#16a34a", margin: "3px 0 0" }}>✓ {depInfo.city} ({fmtUtc(depInfo.utc)})</p>}
+                  {depInfo && <p style={{ fontSize: 11, color: "#16a34a", margin: "3px 0 0" }}>✓ {depInfo.city} ({fmtUtc(depEff)}{depInfo.dst && getDSTAdjustment(depInfo.dst, _date) ? " DST" : ""})</p>}
                   {transitFormDep && !depInfo && <p style={{ fontSize: 11, color: C.errText, margin: "3px 0 0" }}>{t.transitUnknownCode}</p>}
                 </div>
                 <span style={{ paddingTop: 30, color: C.muted, fontSize: 14 }}>→</span>
@@ -1236,7 +1252,7 @@ export default function App() {
                     onChange={(e) => setTransitFormDest(e.target.value)}
                     placeholder="DXB"
                     style={{ width: "100%", padding: "8px 10px", borderRadius: 10, border: `1px solid ${C.light}`, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-                  {destInfo && <p style={{ fontSize: 11, color: "#16a34a", margin: "3px 0 0" }}>✓ {destInfo.city} ({fmtUtc(destInfo.utc)})</p>}
+                  {destInfo && <p style={{ fontSize: 11, color: "#16a34a", margin: "3px 0 0" }}>✓ {destInfo.city} ({fmtUtc(destEff)}{destInfo.dst && getDSTAdjustment(destInfo.dst, _date) ? " DST" : ""})</p>}
                   {transitFormDest && !destInfo && <p style={{ fontSize: 11, color: C.errText, margin: "3px 0 0" }}>{t.transitUnknownCode}</p>}
                 </div>
               </div>
@@ -1263,7 +1279,7 @@ export default function App() {
                 <label htmlFor="transit-tz-input" style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "block", marginBottom: 3 }}>{t.transitTzOffset}</label>
                 {depInfo && destInfo && (
                   <p style={{ fontSize: 11, color: "#16a34a", margin: "0 0 4px" }}>
-                    {t.transitTzAutoDetected}：{depInfo.city}(+{depInfo.utc}) → {destInfo.city}(+{destInfo.utc})
+                    {t.transitTzAutoDetected}：{depInfo.city}({fmtUtc(depEff)}) → {destInfo.city}({fmtUtc(destEff)})
                   </p>
                 )}
                 {(!depInfo || !destInfo) && (
@@ -1282,7 +1298,7 @@ export default function App() {
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={closeTransitModal} style={{ flex: 1, padding: "11px 0", borderRadius: 100, border: `1px solid ${C.light}`, background: "transparent", color: C.muted, fontSize: 13, cursor: "pointer" }}>{t.spotCancelBtn}</button>
-                <button onClick={handleSaveTransit} style={{ flex: 1, padding: "11px 0", borderRadius: 100, border: "none", background: C.accent, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>{t.addSpotConfirmBtn}</button>
+                <button onClick={handleSaveTransit} style={{ flex: 1, padding: "11px 0", borderRadius: 100, border: "none", background: C.accent, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>{editingTransitId ? t.editSpotConfirmBtn : t.addSpotConfirmBtn}</button>
               </div>
             </div>
           </div>
