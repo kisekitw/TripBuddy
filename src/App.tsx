@@ -387,6 +387,18 @@ export default function App() {
     setDays((prev) => prev.map((d) => d.id === dayId ? { ...d, av: vi } : d));
   };
 
+  // M-5: update transit time for a spot after Directions API fetch
+  const handleTransitUpdate = (spotId: string, minutes: number) => {
+    setDays((prev) => prev.map((d) => {
+      if (d.id !== selDay) return d;
+      const arr = getSpotsForDay(d).map((s) => s.id === spotId ? { ...s, tr: minutes } : s);
+      const upd: Day = d.st === "u" && d.vs && d.av !== undefined
+        ? { ...d, vs: d.vs.map((v, i) => i === d.av ? { ...v, sp: arr } : v) }
+        : { ...d, sp: arr };
+      return tMode === "auto" ? recalcDay(upd) : upd;
+    }));
+  };
+
   // ── E-3: Spot CRUD ───────────────────────────────────────────────
 
   const openAddSpot = () => {
@@ -1276,7 +1288,13 @@ export default function App() {
               <span style={{ color: C.muted, fontSize: 12 }}>{t.selectDayMap}</span>
             </div>
           ) : (
-            <MapView key={dd.id} day={dd} dayIndex={di} />
+            <MapView
+              key={`${dd.id}-${dd.av ?? 0}`}
+              day={dd}
+              dayIndex={di}
+              apiKey={import.meta.env.VITE_GOOGLE_MAPS_KEY}
+              onTransitUpdate={handleTransitUpdate}
+            />
           )}
         </div>
       </div>

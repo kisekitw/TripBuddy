@@ -64,9 +64,9 @@
 |---|-----------|------|
 | M-1 | 身為用戶，我想在互動式地圖（Leaflet / Google Maps）上看到真實位置，以便感受地理距離 | ✅ **已實作**（react-leaflet，2026-04-06） |
 | M-2 | 身為用戶，我想在地圖上看到景點間的路線與預估交通時間標籤 | ✅ **已實作**（N-1 段 Polyline + transit time 藥丸標籤 fmtTr，tr=0 不顯示；修正地圖 center 換天 bug，2026-04-11） |
-| M-3 | 身為用戶，切換日方案 (Type A) 時，我想看到地圖上景點與路線的切換動畫 | 未實作動畫 |
-| M-4 | 身為用戶，替代景點 (Type B) 未選中時應以半透明標記顯示在地圖上 | 未實作 |
-| M-5 | 身為用戶，我想地圖能呼叫 Google Directions API 取得真實交通時間並自動更新 transit 時間 | 需求 1.3 明確指出，未實作 |
+| M-3 | 身為用戶，切換日方案 (Type A) 時，我想看到地圖上景點與路線的切換動畫 | ✅ **已實作**（key=`dayId-av` 觸發重掛載 + `@keyframes mapFadeIn` 0.35s 淡入 + `data-variant` 屬性；TC-M3-01~04，2026-04-12） |
+| M-4 | 身為用戶，替代景點 (Type B) 未選中時應以半透明標記顯示在地圖上 | ✅ **已實作**（MapView 對每個 isA spot 的未選中 ao 在同座標以 opacity 0.35 半透明標記顯示；TC-M4-01~03，2026-04-12） |
+| M-5 | 身為用戶，我想地圖能呼叫 Google Directions API 取得真實交通時間並自動更新 transit 時間 | ✅ **已實作**（`fetchTransitMinutes` utility + MapView useEffect + App `handleTransitUpdate`；設定 `VITE_GOOGLE_MAPS_KEY` 環境變數即啟用；TC-M5-01~05，2026-04-12） |
 
 ### 📄 匯入解析
 
@@ -127,7 +127,7 @@
 | 衝突解決 (C) | 0 | ✅ C-1~C-5 全數完成 |
 | 交通時區 (T) | 0 | ✅ T-3 已完成 |
 | 匯入解析 (I) | 3 | 🟡 中 — UI 骨架已有，需接 API |
-| 地圖整合 (M) | 3（剩 M-3~M-5） | ✅ M-1、M-2 已完成；M-3~M-5 尚待 |
+| 地圖整合 (M) | 0 | ✅ M-1~M-5 全數完成 |
 | AI 功能 (A) | 3 | 🟡 中 — 差異化功能 |
 | LINE Bot (L) | 5 | 🟠 低 — 需要獨立後端服務 |
 | 照片管理 (P) | 5 | 🟠 低 — 需要儲存後端 |

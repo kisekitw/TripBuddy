@@ -1,10 +1,11 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from "react-leaflet";
 import type { Day } from "../types";
 import { getSpotsForDay } from "../utils";
 import { dayColors as DC } from "../utils/colors";
+import { fetchTransitMinutes } from "../utils/directions";
 
 // Fix Leaflet's broken default icon URLs when bundled with Vite
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -25,11 +26,44 @@ function fmtTr(minutes: number): string {
 interface Props {
   day: Day;
   dayIndex: number;
+  /** M-5: Google Maps API key. When provided, real transit times are fetched. */
+  apiKey?: string;
+  /** M-5: Called with (spotId, minutes) after a directions fetch succeeds. */
+  onTransitUpdate?: (spotId: string, minutes: number) => void;
 }
 
-export function MapView({ day, dayIndex }: Props) {
+export function MapView({ day, dayIndex, apiKey, onTransitUpdate }: Props) {
   const spots = getSpotsForDay(day);
   const pts = spots.filter((s) => s.la);
+
+  const segments = pts.slice(0, -1).map((from, i) => {
+    const to = pts[i + 1];
+    return {
+      from, to,
+      midLat: (from.la + to.la) / 2,
+      midLng: (from.ln + to.ln) / 2,
+      label: fmtTr(from.tr),
+    };
+  });
+
+  // M-5: Fetch real transit times when API key is provided.
+  // Use ref so the latest onTransitUpdate is always called without adding it to deps.
+  const onTransitUpdateRef = useRef(onTransitUpdate);
+  onTransitUpdateRef.current = onTransitUpdate;
+
+  useEffect(() => {
+    if (!apiKey || !pts.length) return;
+    segments.forEach(({ from, to }) => {
+      if (!from.la || !to.la) return;
+      fetchTransitMinutes([from.la, from.ln], [to.la, to.ln], apiKey).then(
+        (minutes) => {
+          if (minutes !== null) onTransitUpdateRef.current?.(from.id, minutes);
+        },
+      );
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [day.id, day.av, apiKey]);
+
   if (!pts.length) return null;
 
   const lats = pts.map((s) => s.la);
@@ -60,18 +94,37 @@ export function MapView({ day, dayIndex }: Props) {
       iconAnchor: [0, 0],
     });
 
-  const segments = pts.slice(0, -1).map((from, i) => {
-    const to = pts[i + 1];
-    return {
-      from, to,
-      midLat: (from.la + to.la) / 2,
-      midLng: (from.ln + to.ln) / 2,
-      label: fmtTr(from.tr),
-    };
-  });
+  // M-4: semi-transparent icons for unselected alternative options
+  const makeAltIcon = (initial: string) =>
+    L.divIcon({
+      className: "",
+      html: `<div style="width:18px;height:18px;border-radius:50%;background:${dc};color:#fff;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;opacity:0.35;box-shadow:0 1px 3px rgba(0,0,0,.2)">${initial}</div>`,
+      iconSize: [18, 18],
+      iconAnchor: [9, 9],
+    });
+
+  // M-4: collect unselected ao options for each isA spot
+  const altMarkers = pts
+    .filter((s) => s.isA && s.ao && s.ao.length > 1)
+    .flatMap((s) =>
+      (s.ao ?? [])
+        .filter((_, i) => i !== (s.si ?? 0))
+        .map((o, idx) => ({
+          key: `alt-${s.id}-${idx}`,
+          nm: o.nm,
+          la: s.la,
+          ln: s.ln,
+        })),
+    );
 
   return (
-    <div data-testid="map-container" style={{ height: "100%" }}>
+    // M-3: data-variant tracks active variant for animation; key change in App.tsx forces remount
+    <div
+      data-testid="map-container"
+      data-variant={day.av ?? 0}
+      style={{ height: "100%", animation: "mapFadeIn 0.35s ease" }}
+    >
+      <style>{`@keyframes mapFadeIn { from { opacity: 0; } to { opacity: 1; } }`}</style>
       <MapContainer
         center={[centerLat, centerLng]}
         zoom={14}
@@ -101,6 +154,19 @@ export function MapView({ day, dayIndex }: Props) {
               />
             )}
           </React.Fragment>
+        ))}
+        {/* M-4: semi-transparent markers for unselected alt options */}
+        {altMarkers.map((am) => (
+          <Marker
+            key={am.key}
+            position={[am.la, am.ln]}
+            icon={makeAltIcon(am.nm.slice(0, 1))}
+            interactive={false}
+            // @ts-expect-error — data-testid is consumed by the test mock, ignored by Leaflet
+            data-testid="map-alt-marker"
+            aria-label={am.nm}
+            opacity={0.35}
+          />
         ))}
       </MapContainer>
     </div>
