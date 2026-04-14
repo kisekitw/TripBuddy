@@ -38,3 +38,28 @@ export async function deleteTrip(userId: string, tripId: number): Promise<void> 
     .eq("user_id", userId);
   if (error) throw error;
 }
+
+/** LB: Generate a 6-char alphanumeric binding code (expires in 10 min) */
+export async function generateBindingCode(userId: string): Promise<string> {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const code = Array.from(
+    { length: 6 },
+    () => chars[Math.floor(Math.random() * chars.length)],
+  ).join("");
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  const { error } = await supabase
+    .from("line_binding_codes")
+    .upsert({ code, user_id: userId, expires_at: expiresAt });
+  if (error) throw error;
+  return code;
+}
+
+/** LB: Return the bound LINE user ID for this user, or null if not bound */
+export async function getLineBinding(userId: string): Promise<string | null> {
+  const { data } = await supabase
+    .from("user_line_bindings")
+    .select("line_user_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  return data?.line_user_id ?? null;
+}

@@ -13,7 +13,7 @@ import { fetchWeather } from "./utils/weather";
 import { formatDayCard } from "./utils/lineCard";
 import { sendLineNotify } from "./utils/lineNotify";
 import { supabase } from "./lib/supabase";
-import { fetchTrips, upsertTrip, deleteTrip as dbDeleteTrip } from "./lib/db";
+import { fetchTrips, upsertTrip, deleteTrip as dbDeleteTrip, generateBindingCode, getLineBinding } from "./lib/db";
 import type { Session } from "@supabase/supabase-js";
 
 /** Sync arrival card t values with their linked departure's nextDayArrival */
@@ -168,6 +168,10 @@ export default function App() {
   const [linePreviewMsg, setLinePreviewMsg] = useState("");
   const [lineSendStatus, setLineSendStatus] = useState<"idle" | "sending" | "sent" | "cors" | "error">("idle");
   const [lineTokenDraft, setLineTokenDraft] = useState("");
+  // LB: LINE Bot binding
+  const [lineBindingCode, setLineBindingCode] = useState<string | null>(null);
+  const [lineBindingLoading, setLineBindingLoading] = useState(false);
+  const [lineBoundId, setLineBoundId] = useState<string | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const t = getTranslations(lang);
@@ -343,6 +347,31 @@ export default function App() {
         localStorage.setItem("tb_line_lastSent", today);
         setTimeout(() => setLineSendStatus("idle"), 3000);
       }
+    }
+  };
+
+  /** LB: Load binding status when LINE settings modal opens */
+  const handleOpenLineSettings = async () => {
+    setLineTokenDraft(lineToken);
+    setLineBindingCode(null);
+    setLineSettingsOpen(true);
+    if (user && !isGuest) {
+      try {
+        const id = await getLineBinding(user.id);
+        setLineBoundId(id);
+      } catch { /* ignore */ }
+    }
+  };
+
+  /** LB: Generate a binding code and store it */
+  const handleGenerateBindingCode = async () => {
+    if (!user || isGuest) return;
+    setLineBindingLoading(true);
+    try {
+      const code = await generateBindingCode(user.id);
+      setLineBindingCode(code);
+    } catch { /* ignore */ } finally {
+      setLineBindingLoading(false);
     }
   };
 
@@ -981,7 +1010,7 @@ export default function App() {
                   <button onClick={async () => { if (!isGuest) await supabase.auth.signOut(); setUser(null); setIsGuest(false); setTrips([]); setTripDaysMap({}); setView("login"); }} style={{ fontSize: 11, color: C.muted, background: "none", border: "none", cursor: "pointer" }}>{t.logout}</button>
                 </>
               )}
-              <button onClick={() => { setLineTokenDraft(lineToken); setLineSettingsOpen(true); }} style={{ ...pill }}>
+              <button onClick={handleOpenLineSettings} style={{ ...pill }}>
                 {lineToken ? "📲" : "📵"} LINE
               </button>
               <button onClick={() => setImpOpen(true)} style={{ background: "transparent", color: C.accent, border: `1px solid ${C.accent}`, padding: "10px 20px", borderRadius: 100, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>{t.importBtn}</button>
@@ -1116,6 +1145,36 @@ export default function App() {
                   style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${C.light}`, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
                 <p style={{ fontSize: 11, color: C.muted, margin: "5px 0 0" }}>{t.lineTokenHint}</p>
               </div>
+              {/* LB: LINE Bot binding section (logged-in users only) */}
+              {!isGuest && user && (
+                <div style={{ borderTop: `1px solid ${C.light}`, marginTop: 16, paddingTop: 16, marginBottom: 16 }}>
+                  <p style={{ fontSize: 12, fontWeight: 600, color: C.ink, margin: "0 0 6px" }}>{t.lineBotBindTitle}</p>
+                  {lineBoundId ? (
+                    <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 100, background: C.successBg, color: C.successText, fontWeight: 500 }}>{t.lineBotBound}</span>
+                  ) : lineBindingCode ? (
+                    <>
+                      <p style={{ fontSize: 11, color: C.muted, margin: "0 0 6px" }}>{t.lineBotCodeHint}</p>
+                      <p style={{ fontSize: 22, fontWeight: 700, letterSpacing: 6, color: C.ink, margin: "0 0 8px", textAlign: "center" }}>{lineBindingCode}</p>
+                      <button
+                        onClick={() => {
+                          const botId = import.meta.env.VITE_LINE_BOT_ID ?? "";
+                          window.open(`https://line.me/R/oaMessage/@${botId}?text=${encodeURIComponent(`/link ${lineBindingCode}`)}`, "_blank");
+                        }}
+                        style={{ width: "100%", padding: "10px 0", borderRadius: 100, border: "none", background: "#00B900", color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer" }}
+                      >{t.lineBotOpenLine}</button>
+                    </>
+                  ) : (
+                    <>
+                      <p style={{ fontSize: 11, color: C.muted, margin: "0 0 8px" }}>{t.lineBotUnbound}</p>
+                      <button
+                        disabled={lineBindingLoading}
+                        onClick={handleGenerateBindingCode}
+                        style={{ width: "100%", padding: "10px 0", borderRadius: 100, border: `1px solid ${C.light}`, background: "transparent", color: C.ink, fontSize: 13, cursor: lineBindingLoading ? "default" : "pointer", opacity: lineBindingLoading ? 0.6 : 1 }}
+                      >{lineBindingLoading ? "..." : t.lineBotGetCode}</button>
+                    </>
+                  )}
+                </div>
+              )}
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={() => setLineSettingsOpen(false)} style={{ flex: 1, padding: "11px 0", borderRadius: 100, border: `1px solid ${C.light}`, background: "transparent", color: C.muted, fontSize: 13, cursor: "pointer" }}>{t.newTripCancelBtn}</button>
                 <button onClick={() => { setLineToken(lineTokenDraft); setLineSettingsOpen(false); }}

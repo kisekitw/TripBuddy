@@ -129,6 +129,15 @@ export const zhTW = {
   conflictWizardDesc: "以下景點有時間衝突，請逐一處理：",
   conflictWizardClose: "關閉",
 
+  // LB: LINE Bot 綁定
+  lineBotBindTitle: "LINE Bot 綁定",
+  lineBotBound: "已綁定 ✅",
+  lineBotUnbound: "未綁定",
+  lineBotGetCode: "取得綁定碼",
+  lineBotCode: "綁定碼",
+  lineBotOpenLine: "開啟 LINE 完成綁定",
+  lineBotCodeHint: "碼有效 10 分鐘，點下方按鈕在 LINE 中發送",
+
   // L-1: LINE 推播
   lineSettingsTitle: "LINE 推播設定",
   lineTokenLabel: "LINE Notify Token",

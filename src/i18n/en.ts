@@ -120,6 +120,15 @@ export const en = {
   conflictWizardDesc: "The following spots have time conflicts. Please address them one by one:",
   conflictWizardClose: "Close",
 
+  // LB: LINE Bot binding
+  lineBotBindTitle: "LINE Bot Binding",
+  lineBotBound: "Bound ✅",
+  lineBotUnbound: "Not bound",
+  lineBotGetCode: "Get binding code",
+  lineBotCode: "Binding code",
+  lineBotOpenLine: "Open LINE to complete binding",
+  lineBotCodeHint: "Code valid for 10 minutes — tap below to send it in LINE",
+
   // L-1: LINE notifications
   lineSettingsTitle: "LINE Notification Settings",
   lineTokenLabel: "LINE Notify Token",
