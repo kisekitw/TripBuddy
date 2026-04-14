@@ -1,9 +1,15 @@
 # Claude Code
 .claude/
 
+# Environment secrets — never commit
+.env
+.env.local
+
 # Artifacts
 .artifacts/*
 !.artifacts/TripBuddy_GapAnalysis.md
+!.artifacts/TripBuddy_Plan.md
+!.artifacts/TripBuddy_TestCases.md
 
 # Logs
 logs

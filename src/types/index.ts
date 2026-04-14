@@ -60,4 +60,5 @@ export interface User {
   name: string;
   avatar: string;
   email?: string;
+  id?: string;       // Supabase auth.user.id (UUID)
 }

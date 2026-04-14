@@ -11,9 +11,10 @@ interface Props {
   setLang: (l: Locale) => void;
   onLogin: () => void;
   onGuest: () => void;
+  authLoading?: boolean;
 }
 
-export function LoginPage({ t, lang, setLang, onLogin, onGuest }: Props) {
+export function LoginPage({ t, lang, setLang, onLogin, onGuest, authLoading }: Props) {
   return (
     <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
       <div style={{ position: "absolute", top: 20, right: 24 }}>
@@ -27,9 +28,15 @@ export function LoginPage({ t, lang, setLang, onLogin, onGuest }: Props) {
         <div style={{ background: C.card, borderRadius: 20, padding: 32, border: `1px solid ${C.light}`, textAlign: "left" }}>
           <h3 style={{ fontSize: 18, fontWeight: 700, color: C.ink, margin: "0 0 6px" }}>{t.loginTitle}</h3>
           <p style={{ fontSize: 13, color: C.muted, margin: "0 0 24px", lineHeight: 1.6 }}>{t.loginDesc}</p>
+          {authLoading && (
+            <div style={{ textAlign: "center", padding: "4px 0 12px", color: C.muted, fontSize: 12 }} data-testid="auth-loading">
+              驗證中…
+            </div>
+          )}
           <button
             onClick={onLogin}
-            style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "14px 0", borderRadius: 100, border: `1px solid ${C.light}`, background: C.card, fontSize: 14, fontWeight: 500, color: C.ink, cursor: "pointer", marginBottom: 12 }}
+            disabled={authLoading}
+            style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "14px 0", borderRadius: 100, border: `1px solid ${C.light}`, background: C.card, fontSize: 14, fontWeight: 500, color: C.ink, cursor: authLoading ? "default" : "pointer", marginBottom: 12, opacity: authLoading ? 0.5 : 1 }}
           >
             <GoogleIcon /> {t.googleLogin}
           </button>

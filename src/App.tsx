@@ -9,6 +9,12 @@ import { SAMPLE_TRIP, SAMPLE_DAYS } from "./data/sampleTrip";
 import { LangSwitcher } from "./components/LangSwitcher";
 import { MapView } from "./components/MapView";
 import { LoginPage } from "./pages/LoginPage";
+import { fetchWeather } from "./utils/weather";
+import { formatDayCard } from "./utils/lineCard";
+import { sendLineNotify } from "./utils/lineNotify";
+import { supabase } from "./lib/supabase";
+import { fetchTrips, upsertTrip, deleteTrip as dbDeleteTrip } from "./lib/db";
+import type { Session } from "@supabase/supabase-js";
 
 /** Sync arrival card t values with their linked departure's nextDayArrival */
 function syncCrossNightArrivals(days: Day[]): Day[] {
@@ -52,21 +58,15 @@ const pill: React.CSSProperties = {
 
 export default function App() {
   const [lang, setLang] = useState<Locale>("zh-TW");
-  // Restore session from sessionStorage so page refresh doesn't force re-login
-  const [user, setUser] = useState<User | null>(() => {
-    try { const s = sessionStorage.getItem("tb_user"); return s ? JSON.parse(s) : null; } catch { return null; }
-  });
-  const [view, setView] = useState<"login" | "trips" | "editor">(() => {
-    try { return sessionStorage.getItem("tb_user") ? "trips" : "login"; } catch { return "login"; }
-  });
+  const [user, setUser] = useState<User | null>(null);
+  const [view, setView] = useState<"login" | "trips" | "editor">("login");
+  const [authLoading, setAuthLoading] = useState(true);
+  const [isGuest, setIsGuest] = useState(false);
+  const [migrationOpen, setMigrationOpen] = useState(false);
 
-  // E-1: trip list state  (E-5: lazy-init from localStorage)
-  const [trips, setTrips] = useState<Trip[]>(() => {
-    try { const s = localStorage.getItem("tb_trips"); return s ? JSON.parse(s) : [SAMPLE_TRIP]; } catch { return [SAMPLE_TRIP]; }
-  });
-  const [tripDaysMap, setTripDaysMap] = useState<Record<number, Day[]>>(() => {
-    try { const s = localStorage.getItem("tb_tripDaysMap"); return s ? JSON.parse(s) : { [SAMPLE_TRIP.id]: SAMPLE_DAYS }; } catch { return { [SAMPLE_TRIP.id]: SAMPLE_DAYS }; }
-  });
+  // E-1: trip list state
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [tripDaysMap, setTripDaysMap] = useState<Record<number, Day[]>>({});
 
   // Active editor state
   const [trip, setTrip] = useState(SAMPLE_TRIP);
@@ -159,18 +159,121 @@ export default function App() {
   // C-5: resolution wizard
   const [wizardOpen, setWizardOpen] = useState(false);
 
+  // L-1: LINE push notifications
+  const [lineToken, setLineToken] = useState(() => {
+    try { return localStorage.getItem("tb_line_token") ?? ""; } catch { return ""; }
+  });
+  const [lineSettingsOpen, setLineSettingsOpen] = useState(false);
+  const [linePreviewOpen, setLinePreviewOpen] = useState(false);
+  const [linePreviewMsg, setLinePreviewMsg] = useState("");
+  const [lineSendStatus, setLineSendStatus] = useState<"idle" | "sending" | "sent" | "cors" | "error">("idle");
+  const [lineTokenDraft, setLineTokenDraft] = useState("");
+
   const fileRef = useRef<HTMLInputElement>(null);
   const t = getTranslations(lang);
 
-  // Persist user session to sessionStorage (survives page refresh, cleared on tab close)
+  // ── Supabase auth ────────────────────────────────────────────────
+
+  async function applySession(session: Session) {
+    const u = session.user;
+    const newUser: User = {
+      id: u.id,
+      name: u.user_metadata?.full_name ?? u.email ?? "旅行者",
+      avatar: (u.user_metadata?.full_name ?? u.email ?? "T")[0].toUpperCase(),
+      email: u.email,
+    };
+    setUser(newUser);
+    setIsGuest(false);
+
+    let rows: { trip: Trip; days: Day[] }[] = [];
+    try { rows = await fetchTrips(u.id); } catch { /* network error — fall back to empty */ }
+
+    // First-login migration: local data exists but cloud is empty
+    const localTripsRaw = localStorage.getItem("tb_trips");
+    if (rows.length === 0 && localTripsRaw) {
+      setMigrationOpen(true);
+    }
+
+    setTrips(rows.map((r) => r.trip));
+    setTripDaysMap(Object.fromEntries(rows.map((r) => [r.trip.id, r.days])));
+    setView("trips");
+    setAuthLoading(false);
+  }
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) {
+        applySession(data.session);
+      } else {
+        // Check for guest session in sessionStorage
+        try {
+          const s = sessionStorage.getItem("tb_user");
+          if (s) {
+            const savedUser: User = JSON.parse(s);
+            if (!savedUser.id) {
+              // guest — restore localStorage trips
+              setIsGuest(true);
+              setUser(savedUser);
+              const tripsRaw = localStorage.getItem("tb_trips");
+              const daysRaw = localStorage.getItem("tb_tripDaysMap");
+              setTrips(tripsRaw ? JSON.parse(tripsRaw) : [SAMPLE_TRIP]);
+              setTripDaysMap(daysRaw ? JSON.parse(daysRaw) : { [SAMPLE_TRIP.id]: SAMPLE_DAYS });
+              setView("trips");
+            }
+          }
+        } catch { /* ignore */ }
+        setAuthLoading(false);
+      }
+    });
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        applySession(session);
+      } else if (!isGuest) {
+        setUser(null);
+        setTrips([]);
+        setTripDaysMap({});
+        setView("login");
+      }
+    });
+    return () => sub.subscription.unsubscribe();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist guest session to sessionStorage
   useEffect(() => {
     if (user) { sessionStorage.setItem("tb_user", JSON.stringify(user)); }
     else { sessionStorage.removeItem("tb_user"); }
   }, [user]);
 
-  // E-5: persist trips & days to localStorage whenever they change
-  useEffect(() => { localStorage.setItem("tb_trips", JSON.stringify(trips)); }, [trips]);
-  useEffect(() => { localStorage.setItem("tb_tripDaysMap", JSON.stringify(tripDaysMap)); }, [tripDaysMap]);
+  // E-5: persist trips & days — localStorage for guest, Supabase for authenticated
+  useEffect(() => {
+    if (isGuest) {
+      localStorage.setItem("tb_trips", JSON.stringify(trips));
+      return;
+    }
+    if (!user?.id) return;
+    const uid = user.id;
+    const tid = setTimeout(() => {
+      trips.forEach((tr) => {
+        const d = tripDaysMap[tr.id] ?? [];
+        upsertTrip(uid, tr, d).catch(() => { /* silently ignore sync errors */ });
+      });
+    }, 500);
+    return () => clearTimeout(tid);
+  }, [trips, tripDaysMap, isGuest, user]);
+
+  useEffect(() => {
+    if (isGuest) {
+      localStorage.setItem("tb_tripDaysMap", JSON.stringify(tripDaysMap));
+    }
+  }, [tripDaysMap, isGuest]);
+
+  // L-1: persist LINE token
+  useEffect(() => {
+    if (lineToken) localStorage.setItem("tb_line_token", lineToken);
+    else localStorage.removeItem("tb_line_token");
+  }, [lineToken]);
 
   // Auto-save editor state: sync `days` → `tripDaysMap` on every edit so closing
   // the browser tab while in the editor does NOT lose unsaved changes.
@@ -197,7 +300,51 @@ export default function App() {
 
   // ── Handlers ────────────────────────────────────────────────────
 
-  const doLogin = () => { setUser({ name: "旅行者", avatar: "T" }); setView("trips"); };
+  const doLogin = async () => {
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
+    });
+    // Supabase redirects to Google; onAuthStateChange handles the session on return
+  };
+
+  const doGuest = () => {
+    const guestUser: User = { name: "旅行者", avatar: "T" };
+    setUser(guestUser);
+    setIsGuest(true);
+    const tripsRaw = localStorage.getItem("tb_trips");
+    const daysRaw = localStorage.getItem("tb_tripDaysMap");
+    setTrips(tripsRaw ? JSON.parse(tripsRaw) : [SAMPLE_TRIP]);
+    setTripDaysMap(daysRaw ? JSON.parse(daysRaw) : { [SAMPLE_TRIP.id]: SAMPLE_DAYS });
+    setView("trips");
+  };
+
+  /** L-1: Send day itinerary card via LINE Notify */
+  const handleLineSend = async (day: Day) => {
+    setLineSendStatus("sending");
+    const year = parseInt(trip.dates.match(/\d{4}/)?.[0] ?? String(new Date().getFullYear()));
+    const dtM = day.dt.match(/^(\d{1,2})\/(\d{1,2})/);
+    const month = dtM ? parseInt(dtM[1]) : new Date().getMonth() + 1;
+    const date = dtM ? parseInt(dtM[2]) : new Date().getDate();
+    const isoDate = `${year}-${String(month).padStart(2, "0")}-${String(date).padStart(2, "0")}`;
+    const spots = getSpotsForDay(day);
+    const firstSpot = spots.find((s) => !s.isArrival);
+    const weather = firstSpot
+      ? await fetchWeather(firstSpot.la, firstSpot.ln, isoDate)
+      : null;
+    const message = formatDayCard(day, year, weather);
+    const result = await sendLineNotify(lineToken, message);
+    setLineSendStatus(result);
+    if (result === "cors" || result === "sent") {
+      setLinePreviewMsg(message);
+      if (result === "cors") setLinePreviewOpen(true);
+      if (result === "sent") {
+        const today = new Date().toISOString().slice(0, 10);
+        localStorage.setItem("tb_line_lastSent", today);
+        setTimeout(() => setLineSendStatus("idle"), 3000);
+      }
+    }
+  };
 
   /** E-1: Open editor for a trip */
   const openTrip = (selectedTrip: Trip) => {
@@ -809,7 +956,8 @@ export default function App() {
       <LoginPage
         t={t} lang={lang} setLang={setLang}
         onLogin={doLogin}
-        onGuest={() => { setUser(null); setView("trips"); }}
+        onGuest={doGuest}
+        authLoading={authLoading}
       />
     );
   }
@@ -830,13 +978,56 @@ export default function App() {
                 <>
                   <div style={{ width: 30, height: 30, borderRadius: 15, background: C.accent, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 13, fontWeight: 600 }}>{user.avatar}</div>
                   <span style={{ fontSize: 13, color: C.ink, fontWeight: 500 }}>{user.name}</span>
-                  <button onClick={() => { setUser(null); setView("login"); }} style={{ fontSize: 11, color: C.muted, background: "none", border: "none", cursor: "pointer" }}>{t.logout}</button>
+                  <button onClick={async () => { if (!isGuest) await supabase.auth.signOut(); setUser(null); setIsGuest(false); setTrips([]); setTripDaysMap({}); setView("login"); }} style={{ fontSize: 11, color: C.muted, background: "none", border: "none", cursor: "pointer" }}>{t.logout}</button>
                 </>
               )}
+              <button onClick={() => { setLineTokenDraft(lineToken); setLineSettingsOpen(true); }} style={{ ...pill }}>
+                {lineToken ? "📲" : "📵"} LINE
+              </button>
               <button onClick={() => setImpOpen(true)} style={{ background: "transparent", color: C.accent, border: `1px solid ${C.accent}`, padding: "10px 20px", borderRadius: 100, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>{t.importBtn}</button>
               <button onClick={() => setNewTripOpen(true)} style={{ background: C.accent, color: "#fff", border: "none", padding: "10px 24px", borderRadius: 100, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>{t.newTrip}</button>
             </div>
           </div>
+
+          {/* Guest banner */}
+          {isGuest && (
+            <div style={{ background: "#fff8e1", border: "1px solid #ffe082", borderRadius: 10, padding: "10px 16px", marginBottom: 20, fontSize: 13, color: "#795548", display: "flex", alignItems: "center", gap: 10 }}>
+              <span>⚠️ 訪客模式：行程僅儲存在此裝置。</span>
+              <button onClick={doLogin} style={{ marginLeft: "auto", background: C.accent, color: "#fff", border: "none", borderRadius: 100, padding: "5px 14px", fontSize: 12, cursor: "pointer" }}>登入以同步雲端</button>
+            </div>
+          )}
+
+          {/* Migration modal */}
+          {migrationOpen && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+              <div style={{ background: C.card, borderRadius: 20, padding: 32, maxWidth: 400, width: "90vw", boxShadow: "0 8px 32px rgba(0,0,0,0.15)" }}>
+                <h3 style={{ fontSize: 18, fontWeight: 700, color: C.ink, margin: "0 0 10px" }}>匯入本機行程？</h3>
+                <p style={{ fontSize: 14, color: C.muted, margin: "0 0 24px", lineHeight: 1.6 }}>偵測到此裝置有已儲存的行程。是否將本機行程匯入雲端帳號？</p>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button
+                    onClick={async () => {
+                      if (!user?.id) return;
+                      try {
+                        const localTrips: Trip[] = JSON.parse(localStorage.getItem("tb_trips") ?? "[]");
+                        const localDaysMap: Record<number, Day[]> = JSON.parse(localStorage.getItem("tb_tripDaysMap") ?? "{}");
+                        for (const tr of localTrips) {
+                          await upsertTrip(user.id, tr, localDaysMap[tr.id] ?? []);
+                        }
+                        setTrips(localTrips);
+                        setTripDaysMap(localDaysMap);
+                      } catch { /* ignore */ }
+                      setMigrationOpen(false);
+                    }}
+                    style={{ flex: 1, background: C.accent, color: "#fff", border: "none", borderRadius: 100, padding: "12px 0", fontSize: 14, fontWeight: 500, cursor: "pointer" }}
+                  >匯入</button>
+                  <button
+                    onClick={() => setMigrationOpen(false)}
+                    style={{ flex: 1, background: "transparent", color: C.muted, border: `1px solid ${C.light}`, borderRadius: 100, padding: "12px 0", fontSize: 14, cursor: "pointer" }}
+                  >略過</button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Trip cards */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 20 }}>
@@ -908,6 +1099,49 @@ export default function App() {
           </div>
         )}
 
+        {/* L-1: LINE Settings Modal */}
+        {lineSettingsOpen && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }} onClick={() => setLineSettingsOpen(false)}>
+            <div role="dialog" aria-modal="true" aria-label={t.lineSettingsTitle} onClick={(e) => e.stopPropagation()}
+              style={{ background: C.card, borderRadius: 20, padding: 28, width: 440, maxWidth: "90vw" }}>
+              <h3 style={{ fontSize: 17, fontWeight: 700, color: C.ink, margin: "0 0 5px" }}>{t.lineSettingsTitle}</h3>
+              {lineToken && (
+                <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 100, background: C.successBg, color: C.successText, fontWeight: 500 }}>{t.lineConnectedBadge}</span>
+              )}
+              <p style={{ fontSize: 11, color: C.muted, margin: "8px 0 16px", lineHeight: 1.6 }}>{t.lineScheduleNote}</p>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "block", marginBottom: 5 }}>{t.lineTokenLabel}</label>
+                <input type="password" value={lineTokenDraft} onChange={(e) => setLineTokenDraft(e.target.value)}
+                  placeholder={t.lineTokenPlaceholder}
+                  style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${C.light}`, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                <p style={{ fontSize: 11, color: C.muted, margin: "5px 0 0" }}>{t.lineTokenHint}</p>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => setLineSettingsOpen(false)} style={{ flex: 1, padding: "11px 0", borderRadius: 100, border: `1px solid ${C.light}`, background: "transparent", color: C.muted, fontSize: 13, cursor: "pointer" }}>{t.newTripCancelBtn}</button>
+                <button onClick={() => { setLineToken(lineTokenDraft); setLineSettingsOpen(false); }}
+                  style={{ flex: 1, padding: "11px 0", borderRadius: 100, border: "none", background: C.accent, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>{t.lineSave}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* L-1: LINE Preview Modal */}
+        {linePreviewOpen && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }} onClick={() => setLinePreviewOpen(false)}>
+            <div onClick={(e) => e.stopPropagation()}
+              style={{ background: C.card, borderRadius: 20, padding: 28, width: 480, maxWidth: "90vw" }}>
+              <h3 style={{ fontSize: 17, fontWeight: 700, color: C.ink, margin: "0 0 12px" }}>{t.linePreviewTitle}</h3>
+              <pre style={{ background: C.bg, borderRadius: 10, padding: 14, fontSize: 12, color: C.ink, whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 320, overflowY: "auto", margin: "0 0 16px" }}>{linePreviewMsg}</pre>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => navigator.clipboard?.writeText(linePreviewMsg)}
+                  style={{ flex: 1, padding: "11px 0", borderRadius: 100, border: `1px solid ${C.light}`, background: "transparent", color: C.ink, fontSize: 13, cursor: "pointer" }}>{t.lineCopyMsg}</button>
+                <button onClick={() => window.open(`https://line.me/R/msg/text/?${encodeURIComponent(linePreviewMsg)}`, "_blank")}
+                  style={{ flex: 1, padding: "11px 0", borderRadius: 100, border: "none", background: "#00B900", color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>{t.lineOpenApp}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* E-1: Create new trip modal */}
         {newTripOpen && (
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }} onClick={closeNewTripModal}>
@@ -961,6 +1195,12 @@ export default function App() {
           {user && <div style={{ width: 24, height: 24, borderRadius: 12, background: C.accent, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, fontWeight: 600 }}>{user.avatar}</div>}
           <button style={{ ...pill, background: tMode === "auto" ? C.infoBg : "transparent", color: tMode === "auto" ? C.infoText : C.muted, borderColor: tMode === "auto" ? C.infoBorder : C.light }} onClick={() => setTMode("auto")}>{t.autoAdjust}</button>
           <button style={{ ...pill, background: tMode === "lock" ? C.warnBg : "transparent", color: tMode === "lock" ? C.warnText : C.muted, borderColor: tMode === "lock" ? C.warnBorder : C.light }} onClick={() => setTMode("lock")}>{t.lockTimes}</button>
+          {dd && (
+            <button onClick={() => handleLineSend(dd)} disabled={lineSendStatus === "sending"}
+              style={{ ...pill, background: lineSendStatus === "sent" ? C.successBg : "transparent", color: lineSendStatus === "sent" ? C.successText : C.muted, borderColor: lineSendStatus === "sent" ? C.successText : C.light }}>
+              {lineSendStatus === "sent" ? t.lineSentOk : t.lineSendToday}
+            </button>
+          )}
         </div>
       </div>
 

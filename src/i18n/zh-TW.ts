@@ -128,4 +128,18 @@ export const zhTW = {
   conflictWizardTitle: "衝突解決精靈",
   conflictWizardDesc: "以下景點有時間衝突，請逐一處理：",
   conflictWizardClose: "關閉",
+
+  // L-1: LINE 推播
+  lineSettingsTitle: "LINE 推播設定",
+  lineTokenLabel: "LINE Notify Token",
+  lineTokenPlaceholder: "貼上個人存取權杖",
+  lineTokenHint: "前往 notify-bot.line.me 取得 Token",
+  lineConnectedBadge: "已連接",
+  lineSendToday: "📲 傳送今日行程",
+  linePreviewTitle: "LINE 行程卡預覽",
+  lineCopyMsg: "複製訊息",
+  lineOpenApp: "開啟 LINE",
+  lineSentOk: "已傳送 ✓",
+  lineScheduleNote: "每日 07:00 自動傳送（需保持頁面開啟）",
+  lineSave: "儲存",
 };

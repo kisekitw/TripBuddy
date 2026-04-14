@@ -119,4 +119,18 @@ export const en = {
   conflictWizardTitle: "Conflict Resolution Wizard",
   conflictWizardDesc: "The following spots have time conflicts. Please address them one by one:",
   conflictWizardClose: "Close",
+
+  // L-1: LINE notifications
+  lineSettingsTitle: "LINE Notification Settings",
+  lineTokenLabel: "LINE Notify Token",
+  lineTokenPlaceholder: "Paste personal access token",
+  lineTokenHint: "Get your token at notify-bot.line.me",
+  lineConnectedBadge: "Connected",
+  lineSendToday: "📲 Send today's itinerary",
+  linePreviewTitle: "LINE Itinerary Card Preview",
+  lineCopyMsg: "Copy message",
+  lineOpenApp: "Open LINE",
+  lineSentOk: "Sent ✓",
+  lineScheduleNote: "Auto-send at 07:00 daily (page must be open)",
+  lineSave: "Save",
 };
