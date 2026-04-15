@@ -41,11 +41,10 @@ export async function deleteTrip(userId: string, tripId: number): Promise<void> 
 
 /** LB: Generate a 6-char alphanumeric binding code (expires in 10 min) */
 export async function generateBindingCode(userId: string): Promise<string> {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const code = Array.from(
-    { length: 6 },
-    () => chars[Math.floor(Math.random() * chars.length)],
-  ).join("");
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 32 chars → 256 % 32 === 0, no modulo bias
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  const code = Array.from(bytes, (b) => chars[b % chars.length]).join("");
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
   const { error } = await supabase
     .from("line_binding_codes")

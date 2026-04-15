@@ -55,7 +55,8 @@ async function findUpcomingSpots(
     .select("days")
     .eq("user_id", userId);
 
-  if (error || !data || data.length === 0) return null;
+  if (error) { console.error("findUpcomingSpots error:", error.message); return null; }
+  if (!data || data.length === 0) return null;
 
   const now = new Date();
   const nowMonth = now.getMonth() + 1;
@@ -84,11 +85,12 @@ async function findUserId(
   supabase: ReturnType<typeof createAdminClient>,
   lineUserId: string,
 ): Promise<string | null> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("user_line_bindings")
     .select("user_id")
     .eq("line_user_id", lineUserId)
     .maybeSingle();
+  if (error) console.error("findUserId error:", error.message);
   return data?.user_id ?? null;
 }
 
@@ -145,7 +147,11 @@ export async function handleMessage(event: {
   const { intent, code } = detectIntent(text);
 
   // /link binding flow
-  if (intent === "link" && code) {
+  if (intent === "link") {
+    if (!code) {
+      await replyMessage(replyToken, "❗ 請提供綁定碼，格式：/link ABC123");
+      return;
+    }
     const { data: bindCode, error } = await supabase
       .from("line_binding_codes")
       .select("user_id, expires_at")
