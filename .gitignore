@@ -5,6 +5,11 @@
 .env
 .env.local
 
+# Supabase CLI binary (downloaded locally, not committed)
+supabase.exe
+supabase.tar.gz
+supabase/.temp/
+
 # Artifacts
 .artifacts/*
 !.artifacts/TripBuddy_GapAnalysis.md
