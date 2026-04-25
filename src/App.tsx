@@ -16,6 +16,52 @@ import { supabase } from "./lib/supabase";
 import { fetchTrips, upsertTrip, deleteTrip as dbDeleteTrip, generateBindingCode, getLineBinding } from "./lib/db";
 import type { Session } from "@supabase/supabase-js";
 
+const WEEKDAY_ZH = ["日","一","二","三","四","五","六"];
+const WEEKDAY_EN = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+
+/** Parse ISO "YYYY-MM-DD" into UTC date components to avoid local-timezone shift */
+function isoToUTC(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+function calcDayDt(startISO: string, dayIndex: number, lang: import("./i18n").Locale): string {
+  const dt = isoToUTC(startISO);
+  dt.setUTCDate(dt.getUTCDate() + dayIndex);
+  const m = dt.getUTCMonth() + 1, day = dt.getUTCDate(), wd = dt.getUTCDay();
+  return lang === "zh-TW"
+    ? `${m}/${day} 週${WEEKDAY_ZH[wd]}`
+    : `${m}/${day} ${WEEKDAY_EN[wd]}`;
+}
+
+/** Parse a start ISO date from trip.dates string as fallback when startDate is not set.
+ *  Handles: "Aug 9 – Aug 25, 2026"  and  "8/9 – 8/25, 2026" */
+function parseTripStartISO(dates: string): string {
+  const yearMatch = dates.match(/(\d{4})/);
+  if (!yearMatch) return "";
+  const year = parseInt(yearMatch[1]);
+  const enMatch = dates.match(/^([A-Za-z]+)\s+(\d+)/);
+  if (enMatch) {
+    const monthIdx = new Date(`${enMatch[1]} 1, 2000`).getMonth();
+    if (!isNaN(monthIdx))
+      return new Date(Date.UTC(year, monthIdx, parseInt(enMatch[2]))).toISOString().slice(0, 10);
+  }
+  const zhMatch = dates.match(/^(\d+)\/(\d+)/);
+  if (zhMatch)
+    return new Date(Date.UTC(year, parseInt(zhMatch[1]) - 1, parseInt(zhMatch[2]))).toISOString().slice(0, 10);
+  return "";
+}
+
+function calcTripDates(startISO: string, numDays: number, lang: import("./i18n").Locale): string {
+  const start = isoToUTC(startISO);
+  const end = isoToUTC(startISO);
+  end.setUTCDate(end.getUTCDate() + numDays - 1);
+  const fmt = (d: Date) => lang === "zh-TW"
+    ? `${d.getUTCMonth()+1}/${d.getUTCDate()}`
+    : d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  return `${fmt(start)} – ${fmt(end)}, ${end.getUTCFullYear()}`;
+}
+
 /** Sync arrival card t values with their linked departure's nextDayArrival */
 function syncCrossNightArrivals(days: Day[]): Day[] {
   // Build map: arrival card id → departure card's current nextDayArrival
@@ -92,7 +138,9 @@ export default function App() {
   const [newTripOpen, setNewTripOpen] = useState(false);
   const [newTripTitle, setNewTripTitle] = useState("");
   const [newTripDest, setNewTripDest] = useState("");
+  const [newTripDate, setNewTripDate] = useState("");
   const [newTripErr, setNewTripErr] = useState("");
+  const [editingTripDate, setEditingTripDate] = useState(false);
 
   // E-2: delete day confirmation state
   const [deleteConfirmDayId, setDeleteConfirmDayId] = useState<number | null>(null);
@@ -401,15 +449,25 @@ export default function App() {
     if (!newTripTitle.trim()) { setNewTripErr(t.newTripTitleRequired); return; }
     const maxId = trips.length > 0 ? Math.max(...trips.map((tr) => tr.id)) : 0;
     const newId = maxId + 1;
-    const newTrip: Trip = { id: newId, title: newTripTitle.trim(), dest: newTripDest.trim() || undefined, dates: "", img: "✈️" };
-    const defaultDay: Day = { id: 1, n: 1, dt: "", st: "c", lb: t.addDayLabel.replace("{n}", "1"), sp: [] };
+    const newTrip: Trip = {
+      id: newId, title: newTripTitle.trim(),
+      dest: newTripDest.trim() || undefined,
+      dates: newTripDate ? calcTripDates(newTripDate, 1, lang) : "",
+      startDate: newTripDate || undefined,
+      img: "✈️",
+    };
+    const defaultDay: Day = {
+      id: 1, n: 1,
+      dt: newTripDate ? calcDayDt(newTripDate, 0, lang) : "",
+      st: "c", lb: t.addDayLabel.replace("{n}", "1"), sp: [],
+    };
     setTrips((prev) => [...prev, newTrip]);
     setTripDaysMap((prev) => ({ ...prev, [newId]: [defaultDay] }));
-    setNewTripOpen(false); setNewTripTitle(""); setNewTripDest(""); setNewTripErr("");
+    setNewTripOpen(false); setNewTripTitle(""); setNewTripDest(""); setNewTripDate(""); setNewTripErr("");
   };
 
   const closeNewTripModal = () => {
-    setNewTripOpen(false); setNewTripTitle(""); setNewTripDest(""); setNewTripErr("");
+    setNewTripOpen(false); setNewTripTitle(""); setNewTripDest(""); setNewTripDate(""); setNewTripErr("");
   };
 
   /** E-2: Add a day to the current trip */
@@ -417,8 +475,23 @@ export default function App() {
     setDays((prev) => {
       const maxN = prev.length > 0 ? Math.max(...prev.map((d) => d.n)) : 0;
       const maxId = prev.length > 0 ? Math.max(...prev.map((d) => d.id)) : 0;
-      return [...prev, { id: maxId + 1, n: maxN + 1, dt: "", st: "c", lb: t.addDayLabel.replace("{n}", String(maxN + 1)), sp: [] }];
+      const dt = trip.startDate ? calcDayDt(trip.startDate, maxN, lang) : "";
+      if (trip.startDate) {
+        setTrips(ps => ps.map(tr => tr.id === trip.id
+          ? { ...tr, dates: calcTripDates(trip.startDate!, maxN + 1, lang) }
+          : tr
+        ));
+      }
+      return [...prev, { id: maxId + 1, n: maxN + 1, dt, st: "c", lb: t.addDayLabel.replace("{n}", String(maxN + 1)), sp: [] }];
     });
+  };
+
+  const handleTripDateChange = (iso: string) => {
+    if (!iso) return;
+    const updated = { ...trip, startDate: iso, dates: calcTripDates(iso, days.length, lang) };
+    setTrips(prev => prev.map(tr => tr.id === trip.id ? updated : tr));
+    setTrip(updated);
+    setDays(prev => prev.map((d, idx) => ({ ...d, dt: calcDayDt(iso, idx, lang) })));
   };
 
   /** E-2: Request deletion — shows confirm dialog if day has spots */
@@ -1282,10 +1355,16 @@ export default function App() {
                   style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${newTripErr ? C.errBorder : C.light}`, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
                 {newTripErr && <p style={{ fontSize: 11, color: C.errText, margin: "4px 0 0" }}>{newTripErr}</p>}
               </div>
-              <div style={{ marginBottom: 24 }}>
+              <div style={{ marginBottom: 14 }}>
                 <label htmlFor="new-trip-dest" style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "block", marginBottom: 5 }}>{t.newTripDestLabel}</label>
                 <input id="new-trip-dest" type="text" value={newTripDest} onChange={(e) => setNewTripDest(e.target.value)} placeholder={t.newTripDestPlaceholder}
                   style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${C.light}`, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+              </div>
+              <div style={{ marginBottom: 24 }}>
+                <label htmlFor="new-trip-date" style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "block", marginBottom: 5 }}>{t.newTripDateLabel}</label>
+                <input id="new-trip-date" type="date" value={newTripDate} onChange={(e) => setNewTripDate(e.target.value)}
+                  style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${C.light}`, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                <p style={{ fontSize: 11, color: C.muted, margin: "4px 0 0" }}>{t.newTripDateHint}</p>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={closeNewTripModal} style={{ flex: 1, padding: "11px 0", borderRadius: 100, border: `1px solid ${C.light}`, background: "transparent", color: C.muted, fontSize: 13, cursor: "pointer" }}>{t.newTripCancelBtn}</button>
@@ -1317,7 +1396,34 @@ export default function App() {
         >{t.back}</button>
         <div style={{ width: 1, height: 18, background: C.light }} />
         <span style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{trip.img} {trip.title}</span>
-        <span style={{ fontSize: 11, color: C.muted }}>{trip.dates}</span>
+        <div style={{ position: "relative" }}>
+          <span onClick={() => setEditingTripDate(true)}
+            title={t.editDateTooltip}
+            style={{ fontSize: 11, color: trip.dates ? C.muted : C.accent,
+                     cursor: "pointer",
+                     borderBottom: trip.dates ? `1px dashed ${C.light}` : `1px dashed ${C.accent}` }}>
+            {trip.dates || (lang === "zh-TW" ? "設定出發日期" : "Set start date")}
+          </span>
+          {editingTripDate && (
+            <>
+              <div style={{ position: "fixed", inset: 0, zIndex: 199 }} onClick={() => setEditingTripDate(false)} />
+              <div style={{ position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)",
+                            background: C.card, border: `1px solid ${C.light}`, borderRadius: 12,
+                            padding: "14px 16px", zIndex: 200, boxShadow: "0 6px 24px rgba(0,0,0,.14)",
+                            minWidth: 220 }}>
+                <p style={{ fontSize: 11, color: C.muted, margin: "0 0 8px", fontWeight: 500 }}>
+                  {lang === "zh-TW" ? "修改出發日期" : "Change start date"}
+                </p>
+                <input type="date" autoFocus
+                  defaultValue={trip.startDate || parseTripStartISO(trip.dates)}
+                  onKeyDown={(e) => { if (e.key === "Escape") setEditingTripDate(false); }}
+                  onChange={(e) => { if (e.target.value) { handleTripDateChange(e.target.value); setEditingTripDate(false); } }}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.light}`,
+                           fontSize: 13, outline: "none", color: C.ink, boxSizing: "border-box" }} />
+              </div>
+            </>
+          )}
+        </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
           <LangSwitcher lang={lang} setLang={setLang} small />
           {user && <div style={{ width: 24, height: 24, borderRadius: 12, background: C.accent, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, fontWeight: 600 }}>{user.avatar}</div>}

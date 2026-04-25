@@ -53,6 +53,9 @@ export const en = {
   newTripConfirmBtn: "Create",
   newTripCancelBtn: "Cancel",
   newTripTitleRequired: "Please enter a trip name",
+  newTripDateLabel: "Start date (optional)",
+  newTripDateHint: "Days will be dated automatically",
+  editDateTooltip: "Click to edit start date",
 
   // E-2: Add / delete days
   addDay: "+ Add day",

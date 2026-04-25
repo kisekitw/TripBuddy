@@ -53,6 +53,7 @@ export interface Trip {
   title: string;
   dest?: string;
   dates: string;
+  startDate?: string;   // ISO format: "2026-04-25"
   img: string;
 }
 

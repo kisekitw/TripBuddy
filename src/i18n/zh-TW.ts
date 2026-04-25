@@ -62,6 +62,9 @@ export const zhTW = {
   newTripConfirmBtn: "建立",
   newTripCancelBtn: "取消",
   newTripTitleRequired: "請輸入旅程名稱",
+  newTripDateLabel: "出發日期（選填）",
+  newTripDateHint: "設定後將自動填入每天的日期",
+  editDateTooltip: "點擊修改出發日期",
 
   // E-2: 新增 / 刪除天數
   addDay: "+ 新增天數",
