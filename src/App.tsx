@@ -1593,7 +1593,6 @@ export default function App() {
                             <button onClick={() => openAddAlt(s.id)} style={{ ...pill, fontSize: 9, padding: "2px 8px", color: C.accent, borderColor: C.accent }}>+</button>
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <span style={{ width: 8, height: 8, borderRadius: 4, background: C.infoBorder, flexShrink: 0 }} />
                             <span style={{ fontSize: 12, fontWeight: 500, color: C.ink }}>{s.nm}</span>
                             {durEl("#f0efec", C.muted, C.accent)}
                             {deltaBadge}
@@ -1613,7 +1612,6 @@ export default function App() {
                           /* ── T-2: Arrival card ── */
                           <div data-testid="transit-arrival" style={{ flex: 1, background: "transparent", border: "none", padding: "4px 0 4px 6px" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <span style={{ fontSize: 14, flexShrink: 0 }}>✈️</span>
                               <span style={{ fontSize: 12, fontWeight: 500, color: "#3a4a7a" }}>{s.nm}</span>
                               <span style={{ fontSize: 10, color: C.muted }}>{t.arrivalLabel}</span>
                               <span style={{ flex: 1 }} />
@@ -1625,7 +1623,6 @@ export default function App() {
                           /* ── T-2: Departure card (cross-midnight) ── */
                           <div data-testid="transit-departure" style={{ flex: 1, background: "transparent", border: "none", padding: "4px 0 4px 6px" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <span style={{ fontSize: 14, flexShrink: 0 }}>✈️</span>
                               <span style={{ fontSize: 12, fontWeight: 500, color: "#3a4a7a" }}>{s.nm}</span>
                               {durEl("#dce4ff", "#3a4a7a", "#6366f1")}
                               {deltaBadge}
@@ -1646,7 +1643,6 @@ export default function App() {
                           /* ── Regular transit card ── */
                           <div data-testid="transit-item" style={{ flex: 1, background: "transparent", border: "none", padding: "4px 0 4px 6px" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <span style={{ fontSize: 14, flexShrink: 0 }}>🚌</span>
                               <span style={{ fontSize: 12, fontWeight: 500, color: "#3a4a7a" }}>{s.nm}</span>
                               {durEl("#dce4ff", "#3a4a7a", "#6366f1")}
                               {deltaBadge}
@@ -1665,7 +1661,6 @@ export default function App() {
                         /* ── Normal spot card ── */
                         <div style={{ flex: 1, background: c >= 2 ? `${C.errBg}80` : c === 1 ? `${C.warnBg}80` : "transparent", border: "none", padding: "4px 0 4px 6px" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <span style={{ width: 8, height: 8, borderRadius: 4, background: c >= 2 ? C.errText : c === 1 ? C.warnText : dc, flexShrink: 0 }} />
                             <span style={{ fontSize: 12, fontWeight: 500, color: C.ink }}>{s.nm}</span>
                             {durEl("#f0efec", C.muted, C.accent)}
                             {c >= 2 && <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 100, background: C.errBg, color: C.errText, fontWeight: 500, border: `1px solid ${C.errBorder}` }}>{t.closed}</span>}
