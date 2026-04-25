@@ -56,6 +56,17 @@ const pill: React.CSSProperties = {
   color: C.muted, cursor: "pointer", whiteSpace: "nowrap",
 };
 
+const FD = "'Playfair Display', Georgia, serif";
+
+const TRIP_COVERS: Record<string, string> = {
+  "✈️": "linear-gradient(155deg,#f8dec0 0%,#e09858 40%,#b06030 100%)",
+  "🗺️": "linear-gradient(155deg,#b8d0e0 0%,#6898b8 40%,#386880 100%)",
+  "🏙️": "linear-gradient(155deg,#f0beb0 0%,#d07060 40%,#a84040 100%)",
+  "🏔️": "linear-gradient(155deg,#d0e0d8 0%,#80b098 40%,#406858 100%)",
+  "🌊": "linear-gradient(155deg,#b8d8e8 0%,#5898b8 40%,#286888 100%)",
+};
+const TRIP_COVER_DEFAULT = "linear-gradient(155deg,#f0e0c0 0%,#c89060 40%,#986030 100%)";
+
 export default function App() {
   const [lang, setLang] = useState<Locale>("zh-TW");
   const [user, setUser] = useState<User | null>(null);
@@ -998,8 +1009,8 @@ export default function App() {
         <div style={{ maxWidth: 960, margin: "0 auto", padding: "32px 24px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28, flexWrap: "wrap", gap: 12 }}>
             <div>
-              <h1 style={{ fontFamily: "Georgia,serif", fontSize: 28, fontWeight: 700, color: C.ink, margin: 0 }}>TripBuddy</h1>
-              <p style={{ color: C.muted, fontSize: 13, margin: "3px 0 0" }}>{t.tagline}</p>
+              <h1 style={{ fontFamily: FD, fontSize: 28, fontWeight: 700, color: C.ink, margin: 0, letterSpacing: "-.01em" }}>TripBuddy</h1>
+              <div style={{ height: 1, background: `${C.accent}50`, marginTop: 5 }} />
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <LangSwitcher lang={lang} setLang={setLang} />
@@ -1058,23 +1069,81 @@ export default function App() {
             </div>
           )}
 
-          {/* Trip cards */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 20 }}>
-            {trips.map((tr) => (
-              <div key={tr.id} data-testid="trip-card" onClick={() => openTrip(tr)}
-                style={{ background: C.card, borderRadius: 16, border: `1px solid ${C.light}`, padding: 24, cursor: "pointer" }}>
-                <div style={{ fontSize: 36, marginBottom: 10 }}>{tr.img}</div>
-                <h3 style={{ fontSize: 15, fontWeight: 600, color: C.ink, margin: "0 0 3px" }}>{tr.title}</h3>
-                <p style={{ fontSize: 12, color: C.muted, margin: "0 0 8px" }}>
-                  {tr.dates}{tr.dates ? " · " : ""}{tripDaysMap[tr.id]?.length ?? 0} {t.days}
-                </p>
-                {tr.id === SAMPLE_TRIP.id && (
-                  <span style={{ fontSize: 10, padding: "3px 10px", borderRadius: 100, background: C.successBg, color: C.successText, fontWeight: 500 }}>{t.importedFrom}</span>
-                )}
+          {/* Section label */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 10, letterSpacing: ".18em", color: C.accent, textTransform: "uppercase", marginBottom: 8 }}>
+              {lang === "zh-TW" ? "我的旅程" : "My Journeys"}
+            </div>
+            <h2 style={{ fontFamily: FD, fontSize: 28, fontWeight: 700, color: C.ink, margin: 0 }}>
+              {lang === "zh-TW" ? "行程集" : "Trip Collection"}
+            </h2>
+          </div>
+
+          {/* Hero card — first trip */}
+          {trips[0] && (() => {
+            const tr = trips[0];
+            const cover = TRIP_COVERS[tr.img] ?? TRIP_COVER_DEFAULT;
+            return (
+              <div data-testid="trip-card" onClick={() => openTrip(tr)} className="fade-up"
+                style={{ display: "flex", borderRadius: 16, overflow: "hidden", height: 280, cursor: "pointer", boxShadow: "0 6px 32px rgba(44,26,14,.14)", marginBottom: 24 }}>
+                <div style={{ flex: "0 0 58%", background: cover, position: "relative" }}>
+                  <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg,transparent 30%,rgba(44,26,14,.55) 100%)" }} />
+                  <div style={{ position: "absolute", bottom: 24, left: 28, right: 16 }}>
+                    <div style={{ fontSize: 10, color: "rgba(255,255,255,.65)", letterSpacing: ".18em", textTransform: "uppercase", marginBottom: 8 }}>{tr.dest ?? ""}</div>
+                    <div style={{ fontFamily: FD, fontSize: 30, fontWeight: 700, color: "#fff", lineHeight: 1.15, textShadow: "0 2px 16px rgba(0,0,0,.3)" }}>{tr.title}</div>
+                  </div>
+                </div>
+                <div style={{ flex: 1, background: C.card, padding: "28px 24px", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                  <div>
+                    <div style={{ fontSize: 10, color: C.accent, letterSpacing: ".15em", textTransform: "uppercase", marginBottom: 12 }}>
+                      {lang === "zh-TW" ? "精選行程" : "Featured Journey"}
+                    </div>
+                    <p style={{ fontSize: 13, color: C.inkMid, lineHeight: 1.7, fontStyle: "italic", marginBottom: 16 }}>
+                      {tr.dates}{tr.dates ? " · " : ""}{tripDaysMap[tr.id]?.length ?? 0} {t.days}
+                    </p>
+                    <div style={{ height: 1, background: C.light }} />
+                    {tr.id === SAMPLE_TRIP.id && (
+                      <span style={{ fontSize: 10, padding: "3px 10px", borderRadius: 100, background: C.successBg, color: C.successText, fontWeight: 500, display: "inline-block", marginTop: 12 }}>{t.importedFrom}</span>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontFamily: FD, fontSize: 14, color: C.accent, fontStyle: "italic" }}>
+                      {lang === "zh-TW" ? "開啟日記" : "Open journal"}
+                    </span>
+                    <span style={{ color: C.accent, fontSize: 16 }}>→</span>
+                  </div>
+                </div>
               </div>
-            ))}
-            <div style={{ background: C.light, borderRadius: 16, border: `2px dashed ${C.muted}40`, padding: 24, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", minHeight: 150, opacity: 0.5 }}>
-              <span style={{ fontSize: 13, color: C.muted }}>{t.createTrip}</span>
+            );
+          })()}
+
+          {/* Small trip cards grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(260px,1fr))", gap: 20 }}>
+            {trips.slice(1).map((tr) => {
+              const cover = TRIP_COVERS[tr.img] ?? TRIP_COVER_DEFAULT;
+              return (
+                <div key={tr.id} data-testid="trip-card" onClick={() => openTrip(tr)}
+                  style={{ borderRadius: 12, overflow: "hidden", cursor: "pointer", boxShadow: "0 3px 18px rgba(44,26,14,.10)", background: C.card }}>
+                  <div style={{ height: 150, background: cover, position: "relative" }}>
+                    <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg,transparent 40%,rgba(44,26,14,.45) 100%)" }} />
+                    <div style={{ position: "absolute", bottom: 12, left: 14, right: 10 }}>
+                      <div style={{ fontSize: 9, color: "rgba(255,255,255,.7)", letterSpacing: ".14em", textTransform: "uppercase" }}>{tr.dest ?? ""}</div>
+                    </div>
+                  </div>
+                  <div style={{ padding: "16px 18px 20px" }}>
+                    <h3 style={{ fontFamily: FD, fontSize: 17, fontWeight: 600, color: C.ink, margin: "0 0 4px", lineHeight: 1.2 }}>{tr.title}</h3>
+                    <div style={{ fontSize: 12, color: C.muted, fontStyle: "italic" }}>
+                      {tr.dates}{tr.dates ? " · " : ""}{tripDaysMap[tr.id]?.length ?? 0} {t.days}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {/* Add new journey */}
+            <div onClick={() => setNewTripOpen(true)}
+              style={{ borderRadius: 12, border: `1.5px dashed ${C.light}`, background: "transparent", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", minHeight: 200, gap: 10, opacity: 0.6 }}>
+              <div style={{ width: 36, height: 36, borderRadius: "50%", border: `1.5px solid ${C.light}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, color: C.muted }}>+</div>
+              <span style={{ fontFamily: FD, fontStyle: "italic", fontSize: 13, color: C.muted }}>{t.createTrip}</span>
             </div>
           </div>
         </div>
@@ -1267,10 +1336,12 @@ export default function App() {
         {/* Sidebar */}
         <div style={{ background: C.card, borderRight: `1px solid ${C.light}`, padding: 8, overflowY: "auto" }}>
           <p style={{ fontSize: 10, fontWeight: 600, color: C.muted, letterSpacing: ".05em", marginBottom: 6 }}>DAYS ({days.length})</p>
-          {days.map((d) => (
-            <div key={d.id} style={{ position: "relative", marginBottom: 3 }}>
+          {days.map((d, dayIdx) => {
+            const sidebarColor = DC[dayIdx % DC.length];
+            return (
+            <div key={d.id} style={{ position: "relative", marginBottom: 4 }}>
               <div onClick={() => setSelDay(d.id)}
-                style={{ padding: "6px 24px 6px 8px", borderRadius: 8, cursor: "pointer", border: `1px solid ${selDay === d.id ? C.accent : C.light}`, background: selDay === d.id ? `${C.accent}08` : "transparent" }}>
+                style={{ padding: "10px 28px 10px 12px", borderRadius: 8, cursor: "pointer", background: selDay === d.id ? `${sidebarColor}12` : "transparent", borderLeft: `3px solid ${selDay === d.id ? sidebarColor : "transparent"}`, transition: "all .15s" }}>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span style={{ fontSize: 11, fontWeight: 600, color: C.ink }}>D{d.n}</span>
                   <span style={{ fontSize: 9, color: C.muted }}>{d.dt}</span>
@@ -1300,7 +1371,8 @@ export default function App() {
                 style={{ position: "absolute", top: 6, right: 4, width: 16, height: 16, borderRadius: 8, border: "none", background: "transparent", color: days.length <= 1 ? C.light : C.muted, cursor: days.length <= 1 ? "not-allowed" : "pointer", fontSize: 12, padding: 0, lineHeight: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}
               >×</button>
             </div>
-          ))}
+            );
+          })}
           {/* E-2: Add day button */}
           <button onClick={addDay} style={{ width: "100%", padding: "6px 0", borderRadius: 8, border: `1px dashed ${C.light}`, background: "transparent", color: C.muted, fontSize: 11, cursor: "pointer", marginTop: 4 }}>{t.addDay}</button>
         </div>
@@ -1311,15 +1383,16 @@ export default function App() {
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: C.muted, fontSize: 13 }}>{t.selectDay}</div>
           ) : (
             <div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
-                <div>
-                  <h3 style={{ fontSize: 14, fontWeight: 700, color: C.ink, margin: 0 }}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: dc, marginRight: 6 }} />Day {dd.n} — {dd.dt}</h3>
-                  <p data-testid="day-label-header" style={{ fontSize: 11, color: C.muted, margin: "2px 0 0" }}>{dd.lb}</p>
-                </div>
-                <div style={{ display: "flex", gap: 8, fontSize: 10 }}>
-                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 13, fontWeight: 600, color: nC ? C.errText : C.successText }}>{nC}</div><div style={{ color: C.muted }}>{t.conflicts}</div></div>
-                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 13, fontWeight: 600, color: nW ? C.warnText : C.successText }}>{nW}</div><div style={{ color: C.muted }}>{t.warnings}</div></div>
-                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{(() => { const ls = sp[sp.length - 1]; return ls ? (ls.nextDayArrival !== undefined ? `${fmt(ls.t)}+1` : ls.isArrival ? fmt(ls.t) : fmt(ls.t + ls.d)) : "--"; })()}</div><div style={{ color: C.muted }}>{t.ends}</div></div>
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 10, letterSpacing: ".15em", color: dc, textTransform: "uppercase", marginBottom: 6 }}>Day {dd.n}{dd.dt ? ` · ${dd.dt}` : ""}</div>
+                <h3 data-testid="day-label-header" style={{ fontFamily: FD, fontSize: 20, fontWeight: 700, color: C.ink, margin: "0 0 10px", lineHeight: 1.2 }}>{dd.lb}</h3>
+                <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
+                  <div style={{ height: 1, flex: 1, background: C.light }} />
+                  <div style={{ display: "flex", gap: 16, fontSize: 11 }}>
+                    <span style={{ color: nC ? C.errText : C.muted }}>{nC} {t.conflicts}</span>
+                    <span style={{ color: nW ? C.warnText : C.muted }}>{nW} {t.warnings}</span>
+                    <span style={{ color: C.muted }}>{t.ends} {(() => { const ls = sp[sp.length - 1]; return ls ? (ls.nextDayArrival !== undefined ? `${fmt(ls.t)}+1` : ls.isArrival ? fmt(ls.t) : fmt(ls.t + ls.d)) : "--"; })()}</span>
+                  </div>
                 </div>
               </div>
               {dd.st === "u" && dd.vs && (
@@ -1371,7 +1444,7 @@ export default function App() {
                 return (
                   <div key={s.id}>
                     {i > 0 && (sp[i - 1].tr || 0) > 0 && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 0 2px 26px", fontSize: 9, color: C.muted }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 0 2px 40px", fontSize: 9, color: C.muted }}>
                         ↓{" "}
                         {editingTrSpotId === sp[i - 1].id
                           ? <><input type="number" defaultValue={sp[i - 1].tr} min={0} autoFocus
@@ -1389,14 +1462,17 @@ export default function App() {
                       </div>
                     )}
                     <div draggable onDragStart={() => setDragI(i)} onDragOver={(e) => e.preventDefault()} onDrop={() => { if (dragI !== null && dragI !== i) moveSpot(dd.id, dragI, i); setDragI(null); }} onDragEnd={() => setDragI(null)}
-                      style={{ display: "flex", alignItems: "flex-start", gap: 6, marginBottom: 4, opacity: dragI === i ? 0.4 : 1 }}>
+                      style={{ display: "flex", gap: 0, marginBottom: 2, opacity: dragI === i ? 0.4 : 1 }}>
 
-                      {/* Drag handle */}
-                      <span style={{ paddingTop: 9, color: C.muted, fontSize: 13, cursor: "grab", userSelect: "none", flexShrink: 0 }}>⠿</span>
+                      {/* Timeline column: dot + connector */}
+                      <div style={{ width: 40, display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0, paddingTop: 5, cursor: "grab", userSelect: "none" }}>
+                        <div style={{ width: s.type === "transit" ? 8 : 10, height: s.type === "transit" ? 8 : 10, borderRadius: "50%", background: s.type === "transit" ? "transparent" : dc, border: `2px solid ${s.type === "transit" ? C.muted : dc}`, flexShrink: 0 }} />
+                        {i < sp.length - 1 && <div style={{ width: 1.5, flex: 1, background: `${dc}28`, minHeight: 20, marginTop: 3 }} />}
+                      </div>
 
                       {s.isA && s.ao ? (
                         /* ── Alternative slot card ── */
-                        <div style={{ flex: 1, border: `1.5px dashed ${C.infoBorder}`, borderRadius: 10, padding: "8px 10px", background: C.card }}>
+                        <div style={{ flex: 1, border: `1.5px dashed ${C.infoBorder}80`, borderRadius: 8, padding: "4px 0 4px 6px", background: "transparent" }}>
                           <div style={{ fontSize: 9, color: C.infoText, fontWeight: 500, marginBottom: 4 }}>{t.alternatives}</div>
                           <div style={{ display: "flex", gap: 2, marginBottom: 6, flexWrap: "wrap", alignItems: "center" }}>
                             {s.ao.map((o, ai) => (
@@ -1426,7 +1502,7 @@ export default function App() {
                       ) : s.type === "transit" ? (
                         s.isArrival ? (
                           /* ── T-2: Arrival card ── */
-                          <div data-testid="transit-arrival" style={{ flex: 1, background: "#f0f4ff", border: `1px solid #c8d6f8`, borderLeft: "3px solid #6366f1", borderRadius: 10, padding: "8px 10px" }}>
+                          <div data-testid="transit-arrival" style={{ flex: 1, background: "transparent", border: "none", padding: "4px 0 4px 6px" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                               <span style={{ fontSize: 14, flexShrink: 0 }}>✈️</span>
                               <span style={{ fontSize: 12, fontWeight: 500, color: "#3a4a7a" }}>{s.nm}</span>
@@ -1438,7 +1514,7 @@ export default function App() {
                           </div>
                         ) : s.nextDayArrival !== undefined ? (
                           /* ── T-2: Departure card (cross-midnight) ── */
-                          <div data-testid="transit-departure" style={{ flex: 1, background: "#f0f4ff", border: `1px solid #c8d6f8`, borderLeft: "3px solid #6366f1", borderRadius: 10, padding: "8px 10px" }}>
+                          <div data-testid="transit-departure" style={{ flex: 1, background: "transparent", border: "none", padding: "4px 0 4px 6px" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                               <span style={{ fontSize: 14, flexShrink: 0 }}>✈️</span>
                               <span style={{ fontSize: 12, fontWeight: 500, color: "#3a4a7a" }}>{s.nm}</span>
@@ -1459,7 +1535,7 @@ export default function App() {
                           </div>
                         ) : (
                           /* ── Regular transit card ── */
-                          <div data-testid="transit-item" style={{ flex: 1, background: "#f0f4ff", border: `1px solid #c8d6f8`, borderRadius: 10, padding: "8px 10px" }}>
+                          <div data-testid="transit-item" style={{ flex: 1, background: "transparent", border: "none", padding: "4px 0 4px 6px" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                               <span style={{ fontSize: 14, flexShrink: 0 }}>🚌</span>
                               <span style={{ fontSize: 12, fontWeight: 500, color: "#3a4a7a" }}>{s.nm}</span>
@@ -1478,7 +1554,7 @@ export default function App() {
 
                       ) : (
                         /* ── Normal spot card ── */
-                        <div style={{ flex: 1, background: c >= 2 ? C.errBg : c === 1 ? C.warnBg : C.card, border: `1px solid ${c >= 2 ? C.errBorder : c === 1 ? C.warnBorder : C.light}`, borderRadius: 10, padding: "8px 10px" }}>
+                        <div style={{ flex: 1, background: c >= 2 ? `${C.errBg}80` : c === 1 ? `${C.warnBg}80` : "transparent", border: "none", padding: "4px 0 4px 6px" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                             <span style={{ width: 8, height: 8, borderRadius: 4, background: c >= 2 ? C.errText : c === 1 ? C.warnText : dc, flexShrink: 0 }} />
                             <span style={{ fontSize: 12, fontWeight: 500, color: C.ink }}>{s.nm}</span>
@@ -1580,7 +1656,8 @@ export default function App() {
         </div>
 
         {/* Map */}
-        <div style={{ background: "#e8e6e1", position: "relative", overflow: "hidden" }}>
+        <div style={{ background: "#ece4d4", position: "relative", overflow: "hidden" }}>
+          <div style={{ position: "absolute", inset: 0, backgroundImage: "repeating-linear-gradient(0deg,transparent,transparent 39px,rgba(44,26,14,.05) 39px,rgba(44,26,14,.05) 40px),repeating-linear-gradient(90deg,transparent,transparent 39px,rgba(44,26,14,.05) 39px,rgba(44,26,14,.05) 40px)", pointerEvents: "none", zIndex: 0 }} />
           {(!dd || !sp.length) ? (
             <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 6 }}>
               <div style={{ fontSize: 36, opacity: 0.3 }}>&#128506;</div>
