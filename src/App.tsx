@@ -233,6 +233,8 @@ export default function App() {
   const [lineBoundId, setLineBoundId] = useState<string | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
+  const viewRef = useRef(view);
+  useEffect(() => { viewRef.current = view; }, [view]);
   const t = getTranslations(lang);
 
   // ── Supabase auth ────────────────────────────────────────────────
@@ -259,7 +261,8 @@ export default function App() {
 
     setTrips(rows.map((r) => r.trip));
     setTripDaysMap(Object.fromEntries(rows.map((r) => [r.trip.id, r.days])));
-    setView("trips");
+    // Only navigate to trips on actual sign-in; don't interrupt editor/trips on token refresh
+    if (viewRef.current === "login") setView("trips");
     setAuthLoading(false);
   }
 
