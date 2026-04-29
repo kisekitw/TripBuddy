@@ -47,3 +47,7 @@ body::after {
 .fade-up {
   animation: fadeUp 0.45s ease both;
 }
+
+[data-testid="trip-card"]:hover .trip-delete-btn {
+  opacity: 1 !important;
+}

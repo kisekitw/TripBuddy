@@ -38,6 +38,7 @@ export const zhTW = {
   back: "← 我的行程",
   autoAdjust: "自動調整",
   lockTimes: "鎖定時間",
+  toggleMap: "地圖",
   selectDay: "請從左側選擇一天開始編輯",
   selectDayMap: "選擇一天以顯示地圖",
   conflicts: "衝突",
@@ -65,6 +66,12 @@ export const zhTW = {
   newTripDateLabel: "出發日期（選填）",
   newTripDateHint: "設定後將自動填入每天的日期",
   editDateTooltip: "點擊修改出發日期",
+
+  // delete trip
+  deleteTripLabel: "刪除行程",
+  deleteTripConfirmMsg: "確定要刪除此行程？",
+  deleteTripConfirmBtn: "確認刪除",
+  deleteTripCancelBtn: "取消",
 
   // E-2: 新增 / 刪除天數
   addDay: "+ 新增天數",

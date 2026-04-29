@@ -130,6 +130,8 @@ export default function App() {
   const [days, setDays] = useState<Day[]>(SAMPLE_DAYS);
   const [selDay, setSelDay] = useState<number | null>(null);
   const [tMode, setTMode] = useState<"auto" | "lock">("auto");
+  const [mapOpen, setMapOpen] = useState(() => localStorage.getItem("tb_map_open") === "true");
+  const toggleMap = () => setMapOpen((prev) => { const next = !prev; localStorage.setItem("tb_map_open", String(next)); return next; });
   const [dragI, setDragI] = useState<number | null>(null);
   const [impOpen, setImpOpen] = useState(false);
   const [impStep, setImpStep] = useState<"idle" | "parsing" | "done">("idle");
@@ -144,6 +146,9 @@ export default function App() {
 
   // E-2: delete day confirmation state
   const [deleteConfirmDayId, setDeleteConfirmDayId] = useState<number | null>(null);
+
+  // delete trip confirmation state
+  const [deleteTripConfirmId, setDeleteTripConfirmId] = useState<number | null>(null);
 
   // E-3: spot add/edit modal state
   const [spotModalOpen, setSpotModalOpen] = useState(false);
@@ -471,6 +476,16 @@ export default function App() {
 
   const closeNewTripModal = () => {
     setNewTripOpen(false); setNewTripTitle(""); setNewTripDest(""); setNewTripDate(""); setNewTripErr("");
+  };
+
+  /** Delete a trip — removes from local state and syncs to DB for authenticated users */
+  const handleDeleteTrip = async (tripId: number) => {
+    setTrips((prev) => prev.filter((tr) => tr.id !== tripId));
+    setTripDaysMap((prev) => { const next = { ...prev }; delete next[tripId]; return next; });
+    setDeleteTripConfirmId(null);
+    if (!isGuest && user?.id) {
+      await dbDeleteTrip(user.id, tripId).catch(() => { /* silently ignore sync errors */ });
+    }
   };
 
   /** E-2: Add a day to the current trip */
@@ -1161,7 +1176,12 @@ export default function App() {
             const cover = TRIP_COVERS[tr.img] ?? TRIP_COVER_DEFAULT;
             return (
               <div data-testid="trip-card" onClick={() => openTrip(tr)} className="fade-up"
-                style={{ display: "flex", borderRadius: 16, overflow: "hidden", height: 280, cursor: "pointer", boxShadow: "0 6px 32px rgba(44,26,14,.14)", marginBottom: 24 }}>
+                style={{ display: "flex", borderRadius: 16, overflow: "hidden", height: 280, cursor: "pointer", boxShadow: "0 6px 32px rgba(44,26,14,.14)", marginBottom: 24, position: "relative" }}>
+                {tr.id !== SAMPLE_TRIP.id && (
+                  <button className="trip-delete-btn" onClick={(e) => { e.stopPropagation(); setDeleteTripConfirmId(tr.id); }}
+                    aria-label={t.deleteTripLabel}
+                    style={{ position: "absolute", top: 10, right: 10, zIndex: 10, width: 28, height: 28, borderRadius: "50%", border: "none", background: "rgba(0,0,0,.45)", color: "#fff", fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0, transition: "opacity .15s" }}>×</button>
+                )}
                 <div style={{ flex: "0 0 58%", background: cover, position: "relative" }}>
                   <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg,transparent 30%,rgba(44,26,14,.55) 100%)" }} />
                   <div style={{ position: "absolute", bottom: 24, left: 28, right: 16 }}>
@@ -1199,7 +1219,12 @@ export default function App() {
               const cover = TRIP_COVERS[tr.img] ?? TRIP_COVER_DEFAULT;
               return (
                 <div key={tr.id} data-testid="trip-card" onClick={() => openTrip(tr)}
-                  style={{ borderRadius: 12, overflow: "hidden", cursor: "pointer", boxShadow: "0 3px 18px rgba(44,26,14,.10)", background: C.card }}>
+                  style={{ borderRadius: 12, overflow: "hidden", cursor: "pointer", boxShadow: "0 3px 18px rgba(44,26,14,.10)", background: C.card, position: "relative" }}>
+                  {tr.id !== SAMPLE_TRIP.id && (
+                    <button className="trip-delete-btn" onClick={(e) => { e.stopPropagation(); setDeleteTripConfirmId(tr.id); }}
+                      aria-label={t.deleteTripLabel}
+                      style={{ position: "absolute", top: 8, right: 8, zIndex: 10, width: 26, height: 26, borderRadius: "50%", border: "none", background: "rgba(0,0,0,.45)", color: "#fff", fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0, transition: "opacity .15s" }}>×</button>
+                  )}
                   <div style={{ height: 150, background: cover, position: "relative" }}>
                     <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg,transparent 40%,rgba(44,26,14,.45) 100%)" }} />
                     <div style={{ position: "absolute", bottom: 12, left: 14, right: 10 }}>
@@ -1223,6 +1248,23 @@ export default function App() {
             </div>
           </div>
         </div>
+
+        {/* Delete trip confirm dialog */}
+        {deleteTripConfirmId !== null && (() => {
+          const tripToDelete = trips.find((tr) => tr.id === deleteTripConfirmId);
+          return (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+              <div role="alertdialog" aria-modal="true" style={{ background: C.card, borderRadius: 16, padding: 24, width: 320, maxWidth: "90vw" }}>
+                <p style={{ fontSize: 14, fontWeight: 600, color: C.ink, margin: "0 0 6px" }}>{t.deleteTripConfirmMsg}</p>
+                {tripToDelete && <p style={{ fontSize: 13, color: C.muted, margin: "0 0 20px", fontStyle: "italic" }}>"{tripToDelete.title}"</p>}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => setDeleteTripConfirmId(null)} style={{ flex: 1, padding: "10px 0", borderRadius: 100, border: `1px solid ${C.light}`, background: "transparent", color: C.muted, fontSize: 13, cursor: "pointer" }}>{t.deleteTripCancelBtn}</button>
+                  <button onClick={() => handleDeleteTrip(deleteTripConfirmId)} style={{ flex: 1, padding: "10px 0", borderRadius: 100, border: "none", background: C.errText, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>{t.deleteTripConfirmBtn}</button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Import Modal */}
         {impOpen && (
@@ -1438,10 +1480,14 @@ export default function App() {
               {lineSendStatus === "sent" ? t.lineSentOk : t.lineSendToday}
             </button>
           )}
+          <button onClick={toggleMap}
+            style={{ ...pill, background: mapOpen ? C.infoBg : "transparent", color: mapOpen ? C.infoText : C.muted, borderColor: mapOpen ? C.infoBorder : C.light }}>
+            {t.toggleMap}
+          </button>
         </div>
       </div>
 
-      <div style={{ flex: 1, display: "grid", gridTemplateColumns: "210px 1fr 1fr", minHeight: 0 }}>
+      <div style={{ flex: 1, display: "grid", gridTemplateColumns: mapOpen ? "210px 1fr 1fr" : "210px 1fr", minHeight: 0 }}>
         {/* Sidebar */}
         <div style={{ background: C.card, borderRight: `1px solid ${C.light}`, padding: 8, overflowY: "auto" }}>
           <p style={{ fontSize: 10, fontWeight: 600, color: C.muted, letterSpacing: ".05em", marginBottom: 6 }}>DAYS ({days.length})</p>
@@ -1760,23 +1806,25 @@ export default function App() {
         </div>
 
         {/* Map */}
-        <div style={{ background: "#ece4d4", position: "relative", overflow: "hidden" }}>
-          <div style={{ position: "absolute", inset: 0, backgroundImage: "repeating-linear-gradient(0deg,transparent,transparent 39px,rgba(44,26,14,.05) 39px,rgba(44,26,14,.05) 40px),repeating-linear-gradient(90deg,transparent,transparent 39px,rgba(44,26,14,.05) 39px,rgba(44,26,14,.05) 40px)", pointerEvents: "none", zIndex: 0 }} />
-          {(!dd || !sp.length) ? (
-            <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 6 }}>
-              <div style={{ fontSize: 36, opacity: 0.3 }}>&#128506;</div>
-              <span style={{ color: C.muted, fontSize: 12 }}>{t.selectDayMap}</span>
-            </div>
-          ) : (
-            <MapView
-              key={`${dd.id}-${dd.av ?? 0}`}
-              day={dd}
-              dayIndex={di}
-              apiKey={import.meta.env.VITE_GOOGLE_MAPS_KEY}
-              onTransitUpdate={handleTransitUpdate}
-            />
-          )}
-        </div>
+        {mapOpen && (
+          <div style={{ background: "#ece4d4", position: "relative", overflow: "hidden" }}>
+            <div style={{ position: "absolute", inset: 0, backgroundImage: "repeating-linear-gradient(0deg,transparent,transparent 39px,rgba(44,26,14,.05) 39px,rgba(44,26,14,.05) 40px),repeating-linear-gradient(90deg,transparent,transparent 39px,rgba(44,26,14,.05) 39px,rgba(44,26,14,.05) 40px)", pointerEvents: "none", zIndex: 0 }} />
+            {(!dd || !sp.length) ? (
+              <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 6 }}>
+                <div style={{ fontSize: 36, opacity: 0.3 }}>&#128506;</div>
+                <span style={{ color: C.muted, fontSize: 12 }}>{t.selectDayMap}</span>
+              </div>
+            ) : (
+              <MapView
+                key={`${dd.id}-${dd.av ?? 0}`}
+                day={dd}
+                dayIndex={di}
+                apiKey={import.meta.env.VITE_GOOGLE_MAPS_KEY}
+                onTransitUpdate={handleTransitUpdate}
+              />
+            )}
+          </div>
+        )}
       </div>
 
       {/* E-2: Delete day confirmation dialog */}

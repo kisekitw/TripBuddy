@@ -29,6 +29,7 @@ export const en = {
   back: "← Trips",
   autoAdjust: "Auto-adjust",
   lockTimes: "Lock times",
+  toggleMap: "Map",
   selectDay: "Select a day from sidebar to edit",
   selectDayMap: "Select a day",
   conflicts: "conflicts",
@@ -56,6 +57,12 @@ export const en = {
   newTripDateLabel: "Start date (optional)",
   newTripDateHint: "Days will be dated automatically",
   editDateTooltip: "Click to edit start date",
+
+  // delete trip
+  deleteTripLabel: "Delete trip",
+  deleteTripConfirmMsg: "Are you sure you want to delete this trip?",
+  deleteTripConfirmBtn: "Confirm delete",
+  deleteTripCancelBtn: "Cancel",
 
   // E-2: Add / delete days
   addDay: "+ Add day",
