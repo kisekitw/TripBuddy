@@ -1,3 +1,6 @@
+# OpenSpec workflow (local only)
+openspec/
+
 # Claude Code
 .claude/
 
@@ -10,11 +13,8 @@ supabase.exe
 supabase.tar.gz
 supabase/.temp/
 
-# Artifacts
-.artifacts/*
-!.artifacts/TripBuddy_GapAnalysis.md
-!.artifacts/TripBuddy_Plan.md
-!.artifacts/TripBuddy_TestCases.md
+# Artifacts (local only)
+.artifacts/
 
 # Logs
 logs
