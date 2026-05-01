@@ -9,6 +9,9 @@ import { SAMPLE_TRIP, SAMPLE_DAYS } from "./data/sampleTrip";
 import { LangSwitcher } from "./components/LangSwitcher";
 import { MapView } from "./components/MapView";
 import { LoginPage } from "./pages/LoginPage";
+import { PlanningProgressBar } from "./components/PlanningProgressBar";
+import { AchievementBadges } from "./components/AchievementBadges";
+import { computePlanningProgress } from "./utils/planningProgress";
 import { fetchWeather } from "./utils/weather";
 import { formatDayCard } from "./utils/lineCard";
 import { sendLineNotify } from "./utils/lineNotify";
@@ -1198,6 +1201,7 @@ export default function App() {
                       {tr.dates}{tr.dates ? " · " : ""}{tripDaysMap[tr.id]?.length ?? 0} {t.days}
                     </p>
                     <div style={{ height: 1, background: C.light }} />
+                    <PlanningProgressBar score={computePlanningProgress(tr, tripDaysMap[tr.id] ?? [])} />
                     {tr.id === SAMPLE_TRIP.id && (
                       <span style={{ fontSize: 10, padding: "3px 10px", borderRadius: 100, background: C.successBg, color: C.successText, fontWeight: 500, display: "inline-block", marginTop: 12 }}>{t.importedFrom}</span>
                     )}
@@ -1233,9 +1237,10 @@ export default function App() {
                   </div>
                   <div style={{ padding: "16px 18px 20px" }}>
                     <h3 style={{ fontFamily: FD, fontSize: 17, fontWeight: 600, color: C.ink, margin: "0 0 4px", lineHeight: 1.2 }}>{tr.title}</h3>
-                    <div style={{ fontSize: 12, color: C.muted, fontStyle: "italic" }}>
+                    <div style={{ fontSize: 12, color: C.muted, fontStyle: "italic", marginBottom: 8 }}>
                       {tr.dates}{tr.dates ? " · " : ""}{tripDaysMap[tr.id]?.length ?? 0} {t.days}
                     </div>
+                    <PlanningProgressBar score={computePlanningProgress(tr, tripDaysMap[tr.id] ?? [])} compact />
                   </div>
                 </div>
               );
@@ -1530,6 +1535,15 @@ export default function App() {
           })}
           {/* E-2: Add day button */}
           <button onClick={addDay} style={{ width: "100%", padding: "6px 0", borderRadius: 8, border: `1px dashed ${C.light}`, background: "transparent", color: C.muted, fontSize: 11, cursor: "pointer", marginTop: 4 }}>{t.addDay}</button>
+
+          {/* Micro-Delight: planning progress + achievements */}
+          <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.light}` }}>
+            <p style={{ fontSize: 10, fontWeight: 600, color: C.muted, letterSpacing: ".05em", margin: "0 0 4px" }}>
+              {lang === "zh-TW" ? "規劃進度" : "PROGRESS"}
+            </p>
+            <PlanningProgressBar score={computePlanningProgress(trip, days)} compact />
+          </div>
+          <AchievementBadges tripId={trip.id} trip={trip} days={days} lang={lang} />
         </div>
 
         {/* Itinerary */}
